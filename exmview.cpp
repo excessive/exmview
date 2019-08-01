@@ -113,6 +113,22 @@ static void gui_redraw(NVGcontext *vg) {
 	glfwSwapBuffers(hwnd);
 }
 
+#ifndef _MSC_VER
+std::string exec(const char* cmd) {
+	char buffer[128];
+	std::string result = "";
+	FILE* pipe = popen(cmd, "r");
+	if (!pipe) {
+		return result;
+	}
+	while (fgets(buffer, sizeof(buffer), pipe) != NULL) {
+			result += buffer;
+	}
+	pclose(pipe);
+	return result;
+}
+#endif
+
 static void load_font(NVGcontext *vg, const char *name, const char *filename) {
 #if defined _MSC_VER
 	char buf[1024];
@@ -122,6 +138,13 @@ static void load_font(NVGcontext *vg, const char *name, const char *filename) {
 	better_path += filename;
 	if (better_path.length() > 0) {
 		nvgCreateFont(vg, name, better_path.c_str());
+	}
+#else
+	std::string cmd = "fc-match --format=%{file} ";
+	cmd += name;
+	std::string path = exec(cmd.c_str());
+	if (path.length() > 0) {
+		nvgCreateFont(vg, name, path.c_str());
 	}
 #endif
 }
@@ -144,8 +167,13 @@ int main(int argc, char **argv) {
 	gl3wInit2(glfwGetProcAddress);
 	auto vg = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
 
+#ifdef _MSC_VER
 	load_font(vg, "regular", "segoeui.ttf");
 	load_font(vg, "heading", "seguisb.ttf");
+#else
+	load_font(vg, "regular", "Ubuntu-R.ttf");
+	load_font(vg, "heading", "Ubuntu-M.ttf");
+#endif
 
 	UIcontext *oui = uiCreateContext(4096, 1 << 20);
 	uiMakeCurrent(oui);
