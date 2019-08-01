@@ -3,7 +3,6 @@
 //doesn't work right, disabled
 //#define NANOVG_LINEAR_GAMMA
 #define NANOVG_GL3_IMPLEMENTATION
-#define FONS_USE_FREETYPE
 #include "nanovg/src/nanovg.h"
 #include "nanovg/src/nanovg_gl.h"
 #include <string>
@@ -13,9 +12,11 @@
 #define OUI_IMPLEMENTATION
 #include "oui.h"
 
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #include <ShlObj.h>
+#endif
 
 static void reshape_ui() {
 	// this section does not have to be regenerated on frame; a good
@@ -130,14 +131,14 @@ int main(int argc, char **argv) {
 
 	int w = 800;
 	int h = 800;
+	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+	glfwWindowHint(GLFW_COCOA_GRAPHICS_SWITCHING, true);
+	glfwWindowHint(GLFW_SRGB_CAPABLE, true);
 	auto hwnd = glfwCreateWindow(w, h, "exmview", NULL, NULL);
 	glfwSetWindowSizeLimits(hwnd, 256, 256, GLFW_DONT_CARE, GLFW_DONT_CARE);
 	glfwSetWindowAttrib(hwnd, GLFW_RESIZABLE, true);
-	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 4);
-	glfwWindowHint(GLFW_COCOA_GRAPHICS_SWITCHING, true);
-	glfwWindowHint(GLFW_SRGB_CAPABLE, true);
 	glfwMakeContextCurrent(hwnd);
 	glfwSwapInterval(-1);
 	gl3wInit2(glfwGetProcAddress);
