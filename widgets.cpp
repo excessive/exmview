@@ -161,36 +161,52 @@ static void draw_label(NVGcontext *vg, UIrect rect, ButtonData *data) {
 }
 
 static void draw_checkbox(NVGcontext *vg, UIrect rect, CheckBoxData *data, int item) {
-	// get the widget's current state
-	int state = uiGetState(item);
-	// if the value is set, the state is always active
+	float pad = 3.0f;
+	float size = rect.h - 5.0f;
+
+	float cx = rect.w - size - pad;
+	float cy = (rect.h - size) * 0.5f;
+
+	auto high = APP_WIDGET_BUTTON_HIGHLIGHT_HIGH;
+	auto low = APP_WIDGET_BUTTON_HIGHLIGHT_LOW;
+
 	if (*data->checked) {
-		state = UI_ACTIVE;
+		auto tmp = high;
+		high = low;
+		low = tmp;
 	}
-	
-	// checkbox
-	int size = APP_WIDGET_HEIGHT - 4;
-	nvgBeginPath(vg);
-	nvgRoundedRect(vg, rect.w - size - 2, 2.0f, size, size, 3.0f);
-	nvgFillColor(vg, nvgRGBA(255, 255, 255, 255));
-	nvgFill(vg);
 
-	// fill
-	nvgBeginPath(vg);
-	nvgRoundedRect(vg, rect.w - size, 4, size - 4, size - 4, 2);
-	nvgFillColor(vg, nvgTransRGBA(APP_WIDGET_HOT_COLOR, state == UI_ACTIVE ? 255 : 0));
-	nvgFill(vg);
+	BoxShading col;
+	col.bg = APP_WIDGET_BUTTON_BG_INACTIVE;
+	col.high = high;
+	col.low = low;
+	col.grad_start = -10.0f;
+	col.grad_end = 25.0f;
+	shaded_box(vg, cx, cy, size, size, col, NULL);
 
-	// label
+	if (*data->checked) {
+		float line_width = 3.0f;
+		float check_size = size - 3.0f;
+		float check_offset = 0.5f * (size - check_size);
+		check_size = check_size - line_width;
+		float cxo = cx + check_offset + line_width * 0.5f;
+		float cyo = cy + check_offset + line_width * 0.5f;
+		nvgBeginPath(vg);
+		nvgStrokeColor(vg, nvgRGB(0, 0xbb, 0x99));
+		nvgStrokeWidth(vg, line_width);
+		nvgLineCap(vg, NVG_ROUND);
+		nvgMoveTo(vg, cxo, cyo);
+		nvgLineTo(vg, cxo + check_size, cyo + check_size);
+		nvgMoveTo(vg, cxo, cyo + check_size);
+		nvgLineTo(vg, cxo + check_size, cyo);
+		nvgStroke(vg);
+	}
+
 	nvgFontFace(vg, "regular");
 	nvgFontSize(vg, APP_WIDGET_FONT_SIZE);
 	nvgFillColor(vg, APP_WIDGET_FONT_COLOR);
-
-	nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
-	nvgText(vg, 4, (int)(APP_WIDGET_HEIGHT / 2), data->label, NULL);
-
-	//nvgTextAlign(vg, NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE);
-	//nvgText(vg, (int)(rect.w - size - 5), (int)(APP_WIDGET_HEIGHT / 2), data->label, NULL);
+	nvgTextAlign(vg, NVG_ALIGN_MIDDLE | NVG_ALIGN_LEFT);
+	nvgText(vg, pad, rect.h / 2, data->label, NULL);
 }
 
 static BoxShading hot_colors() {
@@ -268,7 +284,7 @@ static void draw_vbox(NVGcontext *vg, UIrect rect) {
 }
 
 static void draw_separator(NVGcontext *vg, UIrect rect) {
-	float margin = 5.0f;
+	float margin = 0.0f;
 	nvgBeginPath(vg);
 	nvgRect(vg, margin, floorf(rect.h / 2 - 0.5), rect.w - margin * 2, 1);
 	nvgFillColor(vg, nvgRGBA(0xa0, 0xa0, 0xa0, 255));
