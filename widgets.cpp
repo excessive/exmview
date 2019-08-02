@@ -121,10 +121,11 @@ static void shaded_box(NVGcontext *vg, float x, float y, float w, float h, BoxSh
 	auto_rect(vg, highlight, x, y, w, h, corners, 0, r);
 }
 
+// bug: on press, there's a frame where this doesn't register as hot
 static void draw_hot(NVGcontext *vg, UIrect rect, int item) {
 	unsigned char heat = 0;
 	unsigned state = uiGetState(item);
-	if (state == UI_HOT) {
+	if (state == UI_HOT || state == UI_BUTTON0_DOWN) {
 		heat = 100;
 	}
 	else if (state == UI_BUTTON0_CAPTURE || state == UI_ACTIVE) {
@@ -201,6 +202,13 @@ static void draw_checkbox(NVGcontext *vg, UIrect rect, CheckBoxData *data, int i
 		nvgLineTo(vg, cxo + check_size, cyo);
 		nvgStroke(vg);
 	}
+
+	float bounds[4];
+	nvgTextBounds(vg, pad, rect.h / 2, data->label, NULL, bounds);
+	nvgBeginPath(vg);
+	nvgRect(vg, bounds[2] + 5, rect.h / 2, rect.w - bounds[2] - size - pad - 10, 1);
+	nvgFillColor(vg, nvgRGB(0xB0, 0xB0, 0xB0));
+	nvgFill(vg);
 
 	nvgFontFace(vg, "regular");
 	nvgFontSize(vg, APP_WIDGET_FONT_SIZE);
