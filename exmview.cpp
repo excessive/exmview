@@ -180,21 +180,29 @@ int main(int argc, char **argv) {
 	uiSetHandler(ui_handler);
 
 	static NVGcontext *tmp_context = NULL;
-	static bool did_refresh = false;
-
+	static int spin = 1;
 	glfwSetWindowRefreshCallback(hwnd, [](GLFWwindow *){
-		did_refresh = true;
+		spin = 0;
 		gui_redraw(tmp_context);
 	});
 
 	while (!glfwWindowShouldClose(hwnd)) {
-		if (!did_refresh) {
+		if (spin > 0) {
 			gui_redraw(vg);
+			spin -= 1;
 		}
-		did_refresh = false;
 		// hack around inability to do capture for callbacks
 		tmp_context = vg;
-		glfwWaitEvents();
+		if (spin > 0) {
+			glfwPollEvents();
+		}
+		else {
+			glfwWaitEvents();
+			// HACK: we have to spin, apparently, 3 times, to register mouse
+			// press events in the UI. this can't be right, and means rendering
+			// more frames than otherwise needed.
+			spin = 3;
+		}
 		//glfwWaitEventsTimeout(1.0/60.0);
 		tmp_context = NULL;
 	}
