@@ -28,8 +28,7 @@ int checkbox(const char *label, bool *checked) {
 	data->checked = checked;
 
 	// set to fire as soon as the left button is pressed and released
-	uiSetEvents(item, UI_BUTTON0_HOT_UP);
-	//uiSetEvents(item, UI_BUTTON0_DOWN);
+	uiSetEvents(item, UI_BUTTON0_HOT_UP | UI_BUTTON0_DOWN);
 
 	return item;
 }
@@ -42,8 +41,7 @@ int button(const char *label, UIhandler handler) {
 	data->head.handler = handler;
 	data->label = label;
 
-	uiSetEvents(item, UI_BUTTON0_HOT_UP);
-	//uiSetEvents(item, UI_BUTTON0_DOWN);
+	uiSetEvents(item, UI_BUTTON0_HOT_UP | UI_BUTTON0_DOWN);
 
 	return item;
 }
@@ -90,6 +88,7 @@ int column() {
 	return item;
 }
 
+/*
 int vgroup_append(int parent, int item) {
 	uiInsert(parent, item);
 	// fill parent horizontally, anchor to previous item vertically
@@ -102,6 +101,7 @@ int vgroup() {
 	uiSetBox(item, UI_COLUMN);
 	return item;
 }
+*/
 
 int hgroup_append(int parent, int item) {
 	uiInsert(parent, item);
@@ -114,6 +114,7 @@ int hgroup_append_fixed(int parent, int item) {
 	return item;
 }
 
+/*
 int hgroup() {
 	int item = uiItem();
 	uiSetBox(item, UI_ROW);
@@ -125,7 +126,7 @@ int row_append(int parent, int item) {
 	uiSetLayout(item, UI_HFILL);
 	return item;
 }
-
+*/
 int row() {
 	int item = uiItem();
 	uiSetBox(item, UI_ROW);
@@ -160,16 +161,23 @@ static void layout_window(int x, int y, int w, int h) {
 	uiSetLayout(col, UI_TOP | UI_HFILL);
 
 	int box = column_append(col, hbox());
-	hgroup_append(box, button("Flat", [](int item, UIevent e) {}));
-	hgroup_append(box, button("Shaded", [](int item, UIevent e) {}));
-	hgroup_append(box, button("Fancy", NULL));
+	hgroup_append(box, button("Wireframe", [](int item, UIevent e) {}));
+	hgroup_append(box, button("Flat", NULL));
+	hgroup_append(box, button("Shaded", NULL));
 
 	column_append(col, separator());
 
 	static bool grid = false;
 	static bool wireframe = false;
+	static bool bounds = false;
+	static bool materials = false;
+	static bool joints = false;
 	column_append(col, checkbox("Show Grid", &grid));
 	column_append(col, checkbox("Show Wireframe", &wireframe));
+	column_append(col, checkbox("Show Bounds", &bounds));
+	column_append(col, checkbox("Show Materials", &materials));
+	column_append(col, checkbox("Show Joints", &joints));
+
 	//column_append(col, button("button", [](int item, UIevent e) {}));
 
 	//static bool checked = false;

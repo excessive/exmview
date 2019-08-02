@@ -8,6 +8,7 @@ add_executable (exmview WIN32
 	"exmview.cpp"
 	"widgets.cpp"
 	"gui.cpp"
+	"iqm.cpp"
 	"nanovg/src/nanovg.c"
 )
 
