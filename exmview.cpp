@@ -18,6 +18,9 @@
 #include <ShlObj.h>
 #endif
 
+// used by widgets
+bool g_focus = true;
+
 static void reshape_ui() {
 	// this section does not have to be regenerated on frame; a good
 	// policy is to invalidate it on events, as this usually alters
@@ -168,6 +171,8 @@ int main(int argc, char **argv) {
 	auto vg = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
 
 #ifdef _MSC_VER
+	//load_font(vg, "regular", "Inter-Regular.ttf");
+	//load_font(vg, "heading", "Inter-Medium.ttf");
 	load_font(vg, "regular", "segoeui.ttf");
 	load_font(vg, "heading", "seguisb.ttf");
 #else
@@ -184,6 +189,10 @@ int main(int argc, char **argv) {
 	glfwSetWindowRefreshCallback(hwnd, [](GLFWwindow *){
 		spin = 0;
 		gui_redraw(tmp_context);
+	});
+
+	glfwSetWindowFocusCallback(hwnd, [](GLFWwindow *, int focus) {
+		g_focus = focus == GLFW_TRUE;
 	});
 
 	while (!glfwWindowShouldClose(hwnd)) {
