@@ -147,12 +147,28 @@ static void gui_redraw(NVGcontext *vg) {
 	glfwGetFramebufferSize(hwnd, &w, &h);
 	glfwGetWindowSize(hwnd, &bw, &bh);
 
+	// update position of mouse cursor; the ui can also be updated
+	// from received events.
+	double mx, my;
+	glfwGetCursorPos(hwnd, &mx, &my);
+	uiSetCursor((int)mx, (int)my);
+
+	// update button state
+	for (int i = 0; i < 3; ++i)
+		uiSetButton(i, 0, glfwGetMouseButton(hwnd, i) == GLFW_PRESS);
+
+	if (last_w != w || last_h != h) {
+		reshape_ui();
+		last_w = w;
+		last_h = h;
+	}
+
 	tfx_view_set_clear_color(0, 0xAA607FFF);
 	tfx_view_set_clear_depth(0, 1.0);
 	tfx_view_set_depth_test(0, TFX_DEPTH_TEST_LT);
 	tfx_touch(0);
 
-
+	//float aspect = fmaxf((float)w / h, (float)h / w);
 	float proj[16] = {
 		2.0f / w, 0.0f, 0.0f, 0.0f,
 		0.0f, -2.0f / h, 0.0f, 0.0f,
@@ -176,26 +192,9 @@ static void gui_redraw(NVGcontext *vg) {
 	// i don't think any os even supports mismatched x/y dpi scaling,
 	// but averaging them is trivial.
 	float ratio = 0.5f * ((float)w / (float)bw + (float)h / (float)bh);
-	float aspect = fmaxf((float)w / h, (float)h / w);
 	nvgBeginFrame(vg, w, h, ratio);
 
 	nvgSave(vg);
-
-	// update position of mouse cursor; the ui can also be updated
-	// from received events.
-	double mx, my;
-	glfwGetCursorPos(hwnd, &mx, &my);
-	uiSetCursor((int)mx, (int)my);
-
-	// update button state
-	for (int i = 0; i < 3; ++i)
-		uiSetButton(i, 0, glfwGetMouseButton(hwnd, i) == GLFW_PRESS);
-
-	if (last_w != w || last_h != h) {
-		reshape_ui();
-		last_w = w;
-		last_h = h;
-	}
 
 	draw_widgets(vg, 0, true, true);
 
