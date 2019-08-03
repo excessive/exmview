@@ -18,6 +18,8 @@
 #include <ShlObj.h>
 #endif
 
+#include "tinyfx.h"
+
 // used by widgets
 bool g_focus = true;
 
@@ -31,6 +33,7 @@ static void reshape_ui() {
 
 	int w, h;
 	glfwGetFramebufferSize(glfwGetCurrentContext(), &w, &h);
+	tfx_reset(w, h, TFX_RESET_MAX_ANISOTROPY);
 	// - UI setup code goes here -
 	gui_layout(w, h);
 
@@ -69,14 +72,107 @@ static void ui_handler(int item, UIevent e) {
 	}
 }
 
+tfx_transient_buffer draw_quad(float x, float y, float w, float h, float z = 0.0f) {
+	tfx_vertex_format fmt = tfx_vertex_format_start();
+	tfx_vertex_format_add(&fmt, 0, 3, false, TFX_TYPE_FLOAT);
+	tfx_vertex_format_add(&fmt, 1, 2, false, TFX_TYPE_FLOAT);
+	tfx_vertex_format_end(&fmt);
+
+	tfx_transient_buffer tb = tfx_transient_buffer_new(&fmt, 6);
+	float *fdata = (float *)tb.data;
+
+	const float cw = 1.0f;
+	const float a[4] = { floorf(x), floorf(y), 0.0f, 1.0f - cw }; // BL
+	const float b[4] = { floorf(x + w), floorf(y), 1.0f, 1.0f - cw }; // BR
+	const float c[4] = { floorf(x + w), floorf(y + h), 1.0f, cw }; // TR
+	const float d[4] = { floorf(x), floorf(y + h), 0.0f, cw }; // TL
+	const float *v[4] = { a, b, c, d };
+	const uint8_t indices[6] = { 0, cw < 0.5f ? 1 : 3, 2, 0, 2, cw < 0.5f ? 3 : 1 };
+
+	for (unsigned i = 0; i < 6; i++) {
+		uint8_t index = indices[i];
+		fdata[i * 5 + 0] = v[index][0];
+		fdata[i * 5 + 1] = v[index][1];
+		fdata[i * 5 + 2] = z;
+		fdata[i * 5 + 3] = v[index][2];
+		fdata[i * 5 + 4] = v[index][3];
+	}
+
+	return tb;
+}
+
+static tfx_program basic = 0;
+static tfx_uniform u, m, low, high;
+
 static void gui_redraw(NVGcontext *vg) {
+	if (!basic) {
+		const char *vss = ""
+			"in vec3 v_position;\n"
+			"in vec2 v_coords;\n"
+			"out vec2 f_coords;\n"
+			"uniform mat4 u_local_to_screen;\n"
+			"void main() {\n"
+			"\tf_coords = v_coords;\n"
+			"\tgl_Position = u_local_to_screen * vec4(v_position.xyz, 1.0);\n"
+			"}\n"
+		;
+
+		const char *fss = ""
+			"in vec2 f_coords;\n"
+			//"uniform sampler2D s_albedo;\n"
+			"out vec4 fs_out;\n"
+			"uniform vec4 u_low;\n"
+			"uniform vec4 u_high;\n"
+			"void main() {\n"
+			//"\tfs_out = texture(s_albedo, f_coords);\n"
+			"\tfs_out = mix(u_low, u_high, f_coords.y);\n"
+			"\tfs_out.rgb *= fs_out.a;\n"
+			"}\n"
+		;
+
+		const char *attribs[] = {
+			"v_position",
+			"v_coords",
+			NULL
+		};
+		basic = tfx_program_new(vss, fss, attribs);
+		u = tfx_uniform_new("s_albedo", TFX_UNIFORM_INT, 1);
+		m = tfx_uniform_new("u_local_to_screen", TFX_UNIFORM_MAT4, 1);
+		low = tfx_uniform_new("u_low", TFX_UNIFORM_VEC4, 1);
+		high = tfx_uniform_new("u_high", TFX_UNIFORM_VEC4, 1);
+	}
+
 	auto hwnd = glfwGetCurrentContext();
 	int w, h, bw, bh;
 	glfwGetFramebufferSize(hwnd, &w, &h);
 	glfwGetWindowSize(hwnd, &bw, &bh);
-	glViewport(0, 0, w, h);
-	glClearColor(0.75f, 0.25f, 0.5f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+	tfx_view_set_clear_color(0, 0xAA607FFF);
+	tfx_view_set_clear_depth(0, 1.0);
+	tfx_view_set_depth_test(0, TFX_DEPTH_TEST_LT);
+	tfx_touch(0);
+
+
+	float proj[16] = {
+		2.0f / w, 0.0f, 0.0f, 0.0f,
+		0.0f, -2.0f / h, 0.0f, 0.0f,
+		0.0f, 0.0f, 1.0f, 0.0f,
+		-1.0f, 1.0f, 0.0f, 1.0f
+	};
+	tfx_set_uniform(&m, proj, 1);
+
+	float c0[4] = { 0.75 * 0.5, 0.25 * 0.5, 0.5 * 0.5, 1.0 };
+	tfx_set_uniform(&low, c0, 1);
+
+	float c1[4] = { 0.75, 0.25, 0.5, 1.0 };
+	tfx_set_uniform(&high, c1, 1);
+
+	tfx_set_transient_buffer(draw_quad(0, 0, w, h, 0));
+	tfx_set_state(TFX_STATE_DEFAULT);
+	tfx_submit(0, basic, false);
+
+	tfx_frame();
+
 	// i don't think any os even supports mismatched x/y dpi scaling,
 	// but averaging them is trivial.
 	float ratio = 0.5f * ((float)w / (float)bw + (float)h / (float)bh);
@@ -158,7 +254,7 @@ int main(int argc, char **argv) {
 	int w = 800;
 	int h = 800;
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_COCOA_GRAPHICS_SWITCHING, true);
 	glfwWindowHint(GLFW_SRGB_CAPABLE, true);
@@ -167,6 +263,18 @@ int main(int argc, char **argv) {
 	glfwSetWindowAttrib(hwnd, GLFW_RESIZABLE, true);
 	glfwMakeContextCurrent(hwnd);
 	glfwSwapInterval(-1);
+
+	tfx_platform_data pd;
+	memset(&pd, 0, sizeof(tfx_platform_data));
+	pd.context_version = 43;
+	pd.use_gles = false;
+	pd.gl_get_proc_address = [](const char *name) {
+		return (void*)glfwGetProcAddress(name);
+	};
+	tfx_set_platform_data(pd);
+
+	tfx_reset(w, h, TFX_RESET_MAX_ANISOTROPY);
+
 	gl3wInit2(glfwGetProcAddress);
 	auto vg = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
 
@@ -217,8 +325,8 @@ int main(int argc, char **argv) {
 	}
 
 	uiDestroyContext(oui);
-
 	nvgDeleteGL3(vg);
+	tfx_shutdown();
 	glfwDestroyWindow(hwnd);
 	glfwTerminate();
 	return 0;
