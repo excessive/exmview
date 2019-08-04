@@ -109,7 +109,7 @@ static tfx_texture bg_gradient;
 
 #include "shaders.hpp"
 
-static std::string decash(std::string &input) {
+static std::string decash(std::string input) {
 	std::string output(input);
 	std::replace(output.begin(), output.end(), '$', '#');
 	return output;
