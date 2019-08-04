@@ -6,6 +6,7 @@
 #include "nanovg/src/nanovg.h"
 #include "nanovg/src/nanovg_gl.h"
 #include <string>
+#include <algorithm>
 
 #include "widgets.hpp"
 #include "gui.hpp"
@@ -101,45 +102,64 @@ tfx_transient_buffer draw_quad(float x, float y, float w, float h, float z = 0.0
 	return tb;
 }
 
-static tfx_program basic = 0;
-static tfx_uniform u, m, low, high;
+static bool loaded = false;
+static tfx_program flat_textured;
+static tfx_uniform albedo, m, w, light;
+static tfx_texture bg_gradient;
+
+#include "shaders.hpp"
+
+static std::string decash(std::string &input) {
+	std::string output(input);
+	std::replace(output.begin(), output.end(), '$', '#');
+	return output;
+}
+
+static tfx_program load(ShaderType shader) {
+	tfx_program ret = 0;
+	BuiltInShader def = shaders[shader];
+	if (def.is_cs && def.cs != NULL) {
+		std::string src = decash(std::string(def.cs));
+		ret = tfx_program_cs_new(src.c_str());
+	}
+	else if (def.vs_fs != NULL && def.attribs != NULL) {
+		std::string src = decash(std::string(def.vs_fs));
+		const char *csrc = src.c_str();
+		ret = tfx_program_new(csrc, csrc, def.attribs);
+	}
+	assert(ret != 0);
+	return ret;
+}
+
+static unsigned swap32(unsigned v) {
+	return ((v >> 24) & 0x000000ff)
+	     | ((v <<  8) & 0x00ff0000)
+	     | ((v >>  8) & 0x0000ff00)
+	     | ((v << 24) & 0xff000000)
+	;
+}
 
 static void gui_redraw(NVGcontext *vg) {
-	if (!basic) {
-		const char *vss = ""
-			"in vec3 v_position;\n"
-			"in vec2 v_coords;\n"
-			"out vec2 f_coords;\n"
-			"uniform mat4 u_local_to_screen;\n"
-			"void main() {\n"
-			"\tf_coords = v_coords;\n"
-			"\tgl_Position = u_local_to_screen * vec4(v_position.xyz, 1.0);\n"
-			"}\n"
-		;
-
-		const char *fss = ""
-			"in vec2 f_coords;\n"
-			//"uniform sampler2D s_albedo;\n"
-			"out vec4 fs_out;\n"
-			"uniform vec4 u_low;\n"
-			"uniform vec4 u_high;\n"
-			"void main() {\n"
-			//"\tfs_out = texture(s_albedo, f_coords);\n"
-			"\tfs_out = mix(u_low, u_high, f_coords.y);\n"
-			"\tfs_out.rgb *= fs_out.a;\n"
-			"}\n"
-		;
-
-		const char *attribs[] = {
-			"v_position",
-			"v_coords",
-			NULL
+	if (!loaded) {
+		flat_textured = load(SHADER_GRADIENT);
+		uint32_t bg_pixels9[] = {
+			swap32(0x5F1F3FFF), swap32(0x5F1F3FFF), swap32(0x5F1F3FFF),
+			swap32(0x8F2F5FFF), swap32(0xA7376FFF), swap32(0x8F2F5FFF),
+			swap32(0xBF3F7FFF), swap32(0xBF3F7FFF), swap32(0xBF3F7FFF),
 		};
-		basic = tfx_program_new(vss, fss, attribs);
-		u = tfx_uniform_new("s_albedo", TFX_UNIFORM_INT, 1);
+		uint32_t bg_pixels2[] = {
+			swap32(0x5F1F3FFF),
+			swap32(0xA7376FFF),
+			//swap32(0xBF3F7FFF)
+		};
+		//float c0[4] = { 0.75 * 0.5, 0.25 * 0.5, 0.5 * 0.5, 1.0 };
+		//float c1[4] = { 0.75, 0.25, 0.5, 1.0 };
+		bg_gradient = tfx_texture_new(1, 2, 1, bg_pixels2, TFX_FORMAT_RGBA8, TFX_TEXTURE_FILTER_LINEAR);
+		albedo = tfx_uniform_new("s_albedo", TFX_UNIFORM_INT, 1);
 		m = tfx_uniform_new("u_local_to_screen", TFX_UNIFORM_MAT4, 1);
-		low = tfx_uniform_new("u_low", TFX_UNIFORM_VEC4, 1);
-		high = tfx_uniform_new("u_high", TFX_UNIFORM_VEC4, 1);
+		w = tfx_uniform_new("u_local_to_world", TFX_UNIFORM_MAT4, 1);
+		light = tfx_uniform_new("u_light", TFX_UNIFORM_VEC4, 1);
+		loaded = true;
 	}
 
 	auto hwnd = glfwGetCurrentContext();
@@ -177,15 +197,17 @@ static void gui_redraw(NVGcontext *vg) {
 	};
 	tfx_set_uniform(&m, proj, 1);
 
-	float c0[4] = { 0.75 * 0.5, 0.25 * 0.5, 0.5 * 0.5, 1.0 };
-	tfx_set_uniform(&low, c0, 1);
-
-	float c1[4] = { 0.75, 0.25, 0.5, 1.0 };
-	tfx_set_uniform(&high, c1, 1);
-
+	tfx_set_texture(&albedo, &bg_gradient, 0);
 	tfx_set_transient_buffer(draw_quad(0, 0, w, h, 0));
 	tfx_set_state(TFX_STATE_DEFAULT);
-	tfx_submit(0, basic, false);
+	tfx_submit(0, flat_textured, false);
+
+	//tfx_set_uniform(&m, mvp, 1);
+	//tfx_set_uniform(&w, model, 1);
+	//tfx_set_vertices(&vbo, vert_count);
+	//tfx_set_indices(&ibo, count, 0);
+	//tfx_set_state(TFX_STATE_DEFAULT);
+	//tfx_submit(0, shaded, false);
 
 	tfx_frame();
 
