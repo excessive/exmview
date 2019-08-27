@@ -106,7 +106,7 @@ vec4 dither8x8(vec2 position, vec4 color) {
 
 void main() {
 	fs_out = texture(s_albedo, f_coords);
-	fs_out.rgb += dither8x8( gl_FragCoord.xy, fs_out.rgb) * 8.0 / 255.0;
+	fs_out.rgb += dither8x8(gl_FragCoord.xy, fs_out.rgb) * 8.0 / 255.0;
 	fs_out.rgb *= fs_out.a;
 }
 $endif
