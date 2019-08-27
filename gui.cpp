@@ -200,5 +200,6 @@ static int iminf(int a, int b) {
 
 void gui_layout(int w, int h) {
 	//layout_window(10, 10, 200, 400);
-	layout_window(0, 0, iminf(w, 300), h);
+	layout_window(imaxf(w - 300, 0), 0, iminf(w, 300), h);
+	//layout_window(0, 0, w, h);
 }
