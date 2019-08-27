@@ -34,7 +34,7 @@ static void reshape_ui() {
 
 	int w, h;
 	glfwGetFramebufferSize(glfwGetCurrentContext(), &w, &h);
-	tfx_reset(w, h, TFX_RESET_MAX_ANISOTROPY);
+	tfx_reset(w, h, (tfx_reset_flags)(TFX_RESET_MAX_ANISOTROPY | TFX_RESET_REPORT_GPU_TIMINGS | TFX_RESET_DEBUG_OVERLAY | TFX_RESET_DEBUG_OVERLAY_STATS));
 	// - UI setup code goes here -
 	gui_layout(w, h);
 
@@ -186,6 +186,7 @@ static void gui_redraw(NVGcontext *vg) {
 	tfx_view_set_clear_color(0, 0xAA607FFF);
 	tfx_view_set_clear_depth(0, 1.0);
 	tfx_view_set_depth_test(0, TFX_DEPTH_TEST_LT);
+	tfx_view_set_name(0, "Background");
 	tfx_touch(0);
 
 	//float aspect = fmaxf((float)w / h, (float)h / w);
@@ -219,7 +220,6 @@ static void gui_redraw(NVGcontext *vg) {
 	nvgSave(vg);
 
 	draw_widgets(vg, 0, true, true);
-
 	// update states and fire handlers
 	uiProcess((int)glfwGetTime());
 
