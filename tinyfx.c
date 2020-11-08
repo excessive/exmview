@@ -133,7 +133,7 @@ static char *tfx_strdup(const char *src) {
 #ifdef TFX_DEBUG
 //#define TFX_FATAL_ERRORS
 #	ifdef TFX_FATAL_ERRORS
-#		define CHECK(fn) fn; { GLenum _status; while ((_status = tfx_glGetError())) { if (_status == GL_NO_ERROR) break; TFX_ERROR("%s:%d GL ERROR: %d", __FILE__, __LINE__, _status); assert(false); } }
+#		define CHECK(fn) fn; { GLenum _status; while ((_status = tfx_glGetError())) { if (_status == GL_NO_ERROR) break; TFX_ERROR("%s:%d GL ERROR: %d", __FILE__, __LINE__, _status); assert(0); } }
 #	else
 #		define CHECK(fn) fn; { GLenum _status; while ((_status = tfx_glGetError())) { if (_status == GL_NO_ERROR) break; TFX_ERROR("%s:%d GL ERROR: %d", __FILE__, __LINE__, _status); } }
 #	endif
@@ -318,6 +318,7 @@ PFNGLGETQUERYOBJECTUI64VPROC tfx_glGetQueryObjectui64v;
 PFNGLGENBUFFERSPROC tfx_glGenBuffers;
 PFNGLBINDBUFFERPROC tfx_glBindBuffer;
 PFNGLBUFFERDATAPROC tfx_glBufferData;
+PFNGLBUFFERSTORAGEPROC tfx_glBufferStorage;
 PFNGLDELETEBUFFERSPROC tfx_glDeleteBuffers;
 PFNGLDELETETEXTURESPROC tfx_glDeleteTextures;
 PFNGLCREATESHADERPROC tfx_glCreateShader;
@@ -343,7 +344,12 @@ PFNGLPIXELSTOREIPROC tfx_glPixelStorei;
 PFNGLTEXIMAGE2DPROC tfx_glTexImage2D;
 PFNGLTEXIMAGE3DPROC tfx_glTexImage3D;
 PFNGLTEXIMAGE2DMULTISAMPLEPROC tfx_glTexImage2DMultisample;
+PFNGLTEXSTORAGE2DPROC tfx_glTexStorage2D;
+PFNGLTEXSTORAGE3DPROC tfx_glTexStorage3D;
+PFNGLTEXSTORAGE2DMULTISAMPLEPROC tfx_glTexStorage2DMultisample;
 PFNGLTEXSUBIMAGE2DPROC tfx_glTexSubImage2D;
+PFNGLTEXSUBIMAGE3DPROC tfx_glTexSubImage3D;
+PFNGLINVALIDATETEXSUBIMAGEPROC tfx_glInvalidateTexSubImage;
 PFNGLGENERATEMIPMAPPROC tfx_glGenerateMipmap;
 PFNGLGENFRAMEBUFFERSPROC tfx_glGenFramebuffers;
 PFNGLDELETEFRAMEBUFFERSPROC tfx_glDeleteFramebuffers;
@@ -383,6 +389,7 @@ PFNGLDEPTHFUNCPROC tfx_glDepthFunc;
 PFNGLDISABLEPROC tfx_glDisable;
 PFNGLDEPTHMASKPROC tfx_glDepthMask;
 PFNGLFRONTFACEPROC tfx_glFrontFace;
+PFNGLPOLYGONMODEPROC tfx_glPolygonMode;
 PFNGLUNIFORM1IVPROC tfx_glUniform1iv;
 PFNGLUNIFORM1FVPROC tfx_glUniform1fv;
 PFNGLUNIFORM2FVPROC tfx_glUniform2fv;
@@ -426,6 +433,7 @@ void load_em_up(void* (*get_proc_address)(const char*)) {
 	tfx_glGenBuffers = get_proc_address("glGenBuffers");
 	tfx_glBindBuffer = get_proc_address("glBindBuffer");
 	tfx_glBufferData = get_proc_address("glBufferData");
+	tfx_glBufferStorage = get_proc_address("glBufferStorage");
 	tfx_glDeleteBuffers = get_proc_address("glDeleteBuffers");
 	tfx_glDeleteTextures= get_proc_address("glDeleteTextures");
 	tfx_glCreateShader = get_proc_address("glCreateShader");
@@ -451,7 +459,12 @@ void load_em_up(void* (*get_proc_address)(const char*)) {
 	tfx_glTexImage2D = get_proc_address("glTexImage2D");
 	tfx_glTexImage3D = get_proc_address("glTexImage3D");
 	tfx_glTexImage2DMultisample = get_proc_address("glTexImage2DMultisample");
+	tfx_glTexStorage2D = get_proc_address("glTexStorage2D");
+	tfx_glTexStorage3D = get_proc_address("glTexStorage3D");
+	tfx_glTexStorage2DMultisample = get_proc_address("glTexStorage2DMultisample");
 	tfx_glTexSubImage2D = get_proc_address("glTexSubImage2D");
+	tfx_glTexSubImage3D = get_proc_address("glTexSubImage3D");
+	tfx_glInvalidateTexSubImage = get_proc_address("glInvalidateTexSubImage");
 	tfx_glGenerateMipmap = get_proc_address("glGenerateMipmap");
 	tfx_glGenFramebuffers = get_proc_address("glGenFramebuffers");
 	tfx_glDeleteFramebuffers = get_proc_address("glDeleteFramebuffers");
@@ -491,6 +504,7 @@ void load_em_up(void* (*get_proc_address)(const char*)) {
 	tfx_glDisable = get_proc_address("glDisable");
 	tfx_glDepthMask = get_proc_address("glDepthMask");
 	tfx_glFrontFace = get_proc_address("glFrontFace");
+	tfx_glPolygonMode = get_proc_address("glPolygonMode");
 	tfx_glUniform1iv = get_proc_address("glUniform1iv");
 	tfx_glUniform1fv = get_proc_address("glUniform1fv");
 	tfx_glUniform2fv = get_proc_address("glUniform2fv");
@@ -548,6 +562,7 @@ static void tfx_printb(tfx_severity severity, const char *k, bool v) {
 	tfx_printf(severity, "TinyFX %s: %s", k, v ? "true" : "false");
 }
 
+static float g_max_aniso = 0.0f;
 tfx_caps tfx_get_caps() {
 	tfx_caps caps;
 	memset(&caps, 0, sizeof(tfx_caps));
@@ -624,6 +639,16 @@ tfx_caps tfx_get_caps() {
 	caps.seamless_cubemap = available_exts[8].supported || gl32;
 	caps.anisotropic_filtering = available_exts[9].supported || gl46;
 	caps.multibind = available_exts[10].supported || gl44;
+
+	g_max_aniso = 0.0f;
+	GLenum GL_TEXTURE_MAX_ANISOTROPY_EXT = 0x84FE;
+	if (caps.anisotropic_filtering) {
+		GLenum GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT = 0x84FF;
+		CHECK(tfx_glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &g_max_aniso));
+		if (g_max_aniso <= 0.0f) {
+			caps.anisotropic_filtering = false;
+		}
+	}
 
 	return caps;
 }
@@ -874,6 +899,7 @@ static void basic_log(const char *msg, tfx_severity level) {
 #ifdef _MSC_VER
 	OutputDebugString(msg);
 	OutputDebugString("\n");
+	printf("%s\n", msg);
 #else
 	printf("%s\n", msg);
 #endif
@@ -887,7 +913,12 @@ static void tvb_reset() {
 			GLuint id;
 			CHECK(tfx_glGenBuffers(1, &id));
 			CHECK(tfx_glBindBuffer(GL_ARRAY_BUFFER, id));
-			CHECK(tfx_glBufferData(GL_ARRAY_BUFFER, TFX_TRANSIENT_BUFFER_SIZE, NULL, GL_DYNAMIC_DRAW));
+			if (tfx_glBufferStorage) {
+				CHECK(tfx_glBufferStorage(GL_ARRAY_BUFFER, TFX_TRANSIENT_BUFFER_SIZE, NULL, GL_DYNAMIC_STORAGE_BIT | GL_MAP_WRITE_BIT));
+			}
+			else {
+				CHECK(tfx_glBufferData(GL_ARRAY_BUFFER, TFX_TRANSIENT_BUFFER_SIZE, NULL, GL_DYNAMIC_DRAW));
+			}
 			g_transient_buffer.buffers[i].gl_id = id;
 		}
 	}
@@ -921,7 +952,7 @@ tfx_transient_buffer tfx_transient_buffer_new(tfx_vertex_format *fmt, uint16_t n
 	if (fmt) {
 		buf.has_format = true;
 		buf.format = *fmt;
-		stride = fmt->stride;
+		stride = (uint32_t)fmt->stride;
 	}
 	g_transient_buffer.offset += (uint32_t)(num_verts * stride);
 	g_transient_buffer.offset += g_transient_buffer.offset % 4; // align, in case the stride is weird
@@ -944,7 +975,6 @@ uint32_t tfx_transient_buffer_get_available(tfx_vertex_format *fmt) {
 static tfx_program *g_programs = NULL;
 static tfx_texture *g_textures = NULL;
 static tfx_reset_flags g_flags = TFX_RESET_NONE;
-static float g_max_aniso = 0.0f;
 static GLuint g_timers[TIMER_COUNT];
 static int g_timer_offset = 0;
 static bool use_timers = false;
@@ -953,6 +983,16 @@ static uint32_t *g_debug_data = NULL;
 static tfx_program g_debug_program = 0;
 static tfx_texture g_debug_overlay;
 static tfx_uniform g_debug_texture;
+
+static const char *g_debug_fss_legacy =
+	"in vec2 f_coord;\n"
+	"uniform sampler2D _tfx_texture;\n"
+	"void main() {\n"
+	"	vec4 color = texture2D(_tfx_texture, vec2(f_coord.x, 1.0 - f_coord.y));\n"
+	"	if (color.a < 0.01) discard;\n"
+	"	gl_FragColor = vec4(color.rgb, 1.0) * color.a;\n"
+	"}\n"
+;
 
 static const char *g_debug_vss =
 	"in vec3 v_position;\n"
@@ -975,11 +1015,14 @@ static const char *g_debug_fss =
 ;
 
 static const char *g_debug_attribs[] = { "v_position", NULL };
+static bool did_you_call_tfx_reset = false;
 
 void tfx_reset(uint16_t width, uint16_t height, tfx_reset_flags flags) {
 	if (g_platform_data.gl_get_proc_address != NULL) {
 		load_em_up(g_platform_data.gl_get_proc_address);
 	}
+
+	did_you_call_tfx_reset = true;
 
 	g_caps = tfx_get_caps();
 	// we require these, unless/until backporting for pre-compute HW.
@@ -997,8 +1040,9 @@ void tfx_reset(uint16_t width, uint16_t height, tfx_reset_flags flags) {
 		use_timers = true;
 	}
 
-	if (g_debug_data) {
+	if (g_debug_data != NULL) {
 		free(g_debug_data);
+		g_debug_data = NULL;
 	}
 	if (g_debug_overlay.gl_count > 0) {
 		tfx_texture_free(&g_debug_overlay);
@@ -1006,7 +1050,12 @@ void tfx_reset(uint16_t width, uint16_t height, tfx_reset_flags flags) {
 
 	if ((flags & TFX_RESET_DEBUG_OVERLAY) == TFX_RESET_DEBUG_OVERLAY) {
 		if (g_debug_program == 0) {
-			g_debug_program = tfx_program_new(g_debug_vss, g_debug_fss, g_debug_attribs);
+			if (g_platform_data.context_version < 30) {
+				g_debug_program = tfx_program_new(g_debug_vss, g_debug_fss_legacy, g_debug_attribs, -1);
+			}
+			else {
+				g_debug_program = tfx_program_new(g_debug_vss, g_debug_fss, g_debug_attribs, -1);
+			}
 			assert(g_debug_program);
 		}
 		if (g_debug_texture.name == NULL) {
@@ -1057,25 +1106,22 @@ void tfx_reset(uint16_t width, uint16_t height, tfx_reset_flags flags) {
 
 	// update every already loaded texture's anisotropy to max (typically 16) or 0
 	if (g_caps.anisotropic_filtering) {
-		g_max_aniso = 0.0f;
-		GLenum GL_TEXTURE_MAX_ANISOTROPY_EXT = 0x84FE;
-		if ((g_flags & TFX_RESET_MAX_ANISOTROPY) == TFX_RESET_MAX_ANISOTROPY) {
-			GLenum GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT = 0x84FF;
-			CHECK(tfx_glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &g_max_aniso));
-		}
 		int nt = sb_count(g_textures);
-		for (int i = 0; i < nt; i++) {
-			tfx_texture *tex = &g_textures[i];
-			for (unsigned j = 0; j < tex->gl_count; j++) {
-				if ((tex->flags & TFX_TEXTURE_MSAA_SAMPLE) == TFX_TEXTURE_MSAA_SAMPLE) {
-					continue;
+		if (g_max_aniso > 0.0f) {
+			for (int i = 0; i < nt; i++) {
+				tfx_texture *tex = &g_textures[i];
+				for (unsigned j = 0; j < tex->gl_count; j++) {
+					if ((tex->flags & TFX_TEXTURE_MSAA_SAMPLE) == TFX_TEXTURE_MSAA_SAMPLE) {
+						continue;
+					}
+					GLenum fmt = GL_TEXTURE_2D;
+					if ((tex->flags & TFX_TEXTURE_CUBE) == TFX_TEXTURE_CUBE) {
+						fmt = GL_TEXTURE_CUBE_MAP;
+					}
+					const GLenum GL_TEXTURE_MAX_ANISOTROPY_EXT = 0x84FE;
+					CHECK(tfx_glBindTexture(fmt, tex->gl_ids[j]));
+					CHECK(tfx_glTexParameterf(fmt, GL_TEXTURE_MAX_ANISOTROPY_EXT, g_max_aniso));
 				}
-				GLenum fmt = GL_TEXTURE_2D;
-				if ((tex->flags & TFX_TEXTURE_CUBE) == TFX_TEXTURE_CUBE) {
-					fmt = GL_TEXTURE_CUBE_MAP;
-				}
-				CHECK(tfx_glBindTexture(fmt, tex->gl_ids[j]));
-				CHECK(tfx_glTexParameterf(fmt, GL_TEXTURE_MAX_ANISOTROPY_EXT, g_max_aniso));
 			}
 		}
 	}
@@ -1251,9 +1297,9 @@ const char *cs_prepend = ""
 	"#line 1\n"
 ;
 
-static char *sappend(const char *left, const char *right) {
+static char *sappend(const char *left, const char *right, const int right_len) {
 	size_t ls = strlen(left);
-	size_t rs = strlen(right);
+	size_t rs = (size_t)right_len;
 	char *ss = (char*)malloc(ls+rs+1);
 	memcpy(ss, left, ls);
 	memcpy(ss+ls, right, rs);
@@ -1261,7 +1307,7 @@ static char *sappend(const char *left, const char *right) {
 	return ss;
 }
 
-static char *shader_concat(const char *base, GLenum shader_type) {
+static char *shader_concat(const char *base, GLenum shader_type, const int base_len) {
 	bool legacy = g_platform_data.context_version < 30;
 
 	const char *prepend = "";
@@ -1289,7 +1335,7 @@ static char *shader_concat(const char *base, GLenum shader_type) {
 		default: break;
 	}
 
-	char *ss1 = sappend(prepend, base);
+	char *ss1 = sappend(prepend, base, base_len);
 
 	char version[64];
 	int gl_major = g_platform_data.context_version / 10;
@@ -1310,16 +1356,16 @@ static char *shader_concat(const char *base, GLenum shader_type) {
 	}
 	snprintf(version, 64, "#version %d%d0%s\n", gl_major, gl_minor, suffix);
 
-	char *ss2 = sappend(ss1, append);
+	char *ss2 = sappend(ss1, append, strlen(append));
 	free(ss1);
 
-	char *ss = sappend(version, ss2);
+	char *ss = sappend(version, ss2, strlen(ss2));
 	free(ss2);
 
 	return ss;
 }
 
-static GLuint load_shader(GLenum type, const char *shaderSrc) {
+static GLuint load_shader(GLenum type, const char *shaderSrc, const int len) {
 	g_shaderc_allocated = true;
 
 	GLuint shader = CHECK(tfx_glCreateShader(type));
@@ -1328,7 +1374,11 @@ static GLuint load_shader(GLenum type, const char *shaderSrc) {
 		return 0;
 	}
 
-	char *ss = shader_concat(shaderSrc, type);
+	if (len <= 0) {
+		return 0;
+	}
+
+	char *ss = shader_concat(shaderSrc, type, len);
 	CHECK(tfx_glShaderSource(shader, 1, (const char**)&ss, NULL));
 	CHECK(tfx_glCompileShader(shader));
 
@@ -1341,13 +1391,16 @@ static GLuint load_shader(GLenum type, const char *shaderSrc) {
 			char* infoLog = (char*)malloc(sizeof(char) * infoLen);
 			CHECK(tfx_glGetShaderInfoLog(shader, infoLen, NULL, infoLog));
 			TFX_ERROR("Error compiling shader:\n%s", infoLog);
+			// TFX_ERROR("FULL SHADER\n\n\n%s\n\n\n", ss);
 #ifdef _MSC_VER
 			OutputDebugString(infoLog);
 #endif
 			free(infoLog);
 		}
 		CHECK(tfx_glDeleteShader(shader));
+#ifdef TFX_DEBUG
 		assert(compiled);
+#endif
 		free(ss);
 		return 0;
 	}
@@ -1374,13 +1427,21 @@ static bool try_program_link(GLuint program) {
 	return true;
 }
 
-tfx_program tfx_program_gs_new(const char *_gss, const char *_vss, const char *_fss, const char *attribs[]) {
+tfx_program tfx_program_gs_len_new(const char *_gss, const int _gs_len, const char *_vss, const int _vs_len, const char *_fss, const int _fs_len, const char *attribs[], const int attrib_count) {
+	assert(did_you_call_tfx_reset);
+
 	GLuint gs = 0;
 	if (_gss) {
-		gs = load_shader(GL_GEOMETRY_SHADER, _gss);
+		gs = load_shader(GL_GEOMETRY_SHADER, _gss, _gs_len);
 	}
-	GLuint vs = load_shader(GL_VERTEX_SHADER, _vss);
-	GLuint fs = load_shader(GL_FRAGMENT_SHADER, _fss);
+	GLuint vs = 0;
+	if (_vss) {
+		vs = load_shader(GL_VERTEX_SHADER, _vss, _vs_len);
+	}
+	GLuint fs = 0;
+	if (_fss) {
+		fs = load_shader(GL_FRAGMENT_SHADER, _fss, _fs_len);
+	}
 	GLuint program = CHECK(tfx_glCreateProgram());
 	if (!program) {
 		return 0;
@@ -1389,15 +1450,26 @@ tfx_program tfx_program_gs_new(const char *_gss, const char *_vss, const char *_
 	if (gs) {
 		CHECK(tfx_glAttachShader(program, gs));
 	}
-	CHECK(tfx_glAttachShader(program, vs));
-	CHECK(tfx_glAttachShader(program, fs));
+	if (vs) {
+		CHECK(tfx_glAttachShader(program, vs));
+	}
+	if (fs) {
+		CHECK(tfx_glAttachShader(program, fs));
+	}
 
-	const char **it = attribs;
-	int i = 0;
-	while (*it != NULL) {
-		CHECK(tfx_glBindAttribLocation(program, i, *it));
-		i++;
-		it++;
+	if (attrib_count >= 0) {
+		for (int i = 0; i < attrib_count; i++) {
+			CHECK(tfx_glBindAttribLocation(program, i, attribs[i]));
+		}
+	}
+	else {
+		const char **it = attribs;
+		int i = 0;
+		while (*it != NULL) {
+			CHECK(tfx_glBindAttribLocation(program, i, *it));
+			i++;
+			it++;
+		}
 	}
 
 	// TODO: accept frag data binding array
@@ -1421,12 +1493,30 @@ tfx_program tfx_program_gs_new(const char *_gss, const char *_vss, const char *_
 	return program;
 }
 
-tfx_program tfx_program_cs_new(const char *css) {
+tfx_program tfx_program_gs_new(const char *_gss, const char *_vss, const char *_fss, const char *attribs[], const int attrib_count) {
+	int gs_len = 0;
+	int vs_len = 0;
+	int fs_len = 0;
+	if (_gss) {
+		gs_len = strlen(_gss);
+	}
+	if (_vss) {
+		vs_len = strlen(_vss);
+	}
+	if (_fss) {
+		fs_len = strlen(_fss);
+	}
+	return tfx_program_gs_len_new(_gss, gs_len, _vss, vs_len, _fss, fs_len, attribs, attrib_count);
+}
+
+tfx_program tfx_program_cs_len_new(const char *css, const int cs_len) {
+	assert(did_you_call_tfx_reset);
+
 	if (!g_caps.compute) {
 		return 0;
 	}
 
-	GLuint cs = load_shader(GL_COMPUTE_SHADER, css);
+	GLuint cs = load_shader(GL_COMPUTE_SHADER, css, cs_len);
 	GLuint program = CHECK(tfx_glCreateProgram());
 	if (!program) {
 		return 0;
@@ -1443,8 +1533,20 @@ tfx_program tfx_program_cs_new(const char *css) {
 	return program;
 }
 
-tfx_program tfx_program_new(const char *_vss, const char *_fss, const char *attribs[]) {
-	return tfx_program_gs_new(NULL, _vss, _fss, attribs);
+tfx_program tfx_program_cs_new(const char *_css) {
+	int cs_len = 0;
+	if (_css) {
+		cs_len = strlen(_css);
+	}
+	return tfx_program_cs_len_new(_css, cs_len);
+}
+
+tfx_program tfx_program_new(const char *_vss, const char *_fss, const char *attribs[], const int attrib_count) {
+	return tfx_program_gs_new(NULL, _vss, _fss, attribs, attrib_count);
+}
+
+tfx_program tfx_program_len_new(const char *_vss, const int _vs_len, const char *_fss, const int _fs_len, const char *attribs[], const int attrib_count) {
+	return tfx_program_gs_len_new(NULL, 0, _vss, _vs_len, _fss, _fs_len, attribs, attrib_count);
 }
 
 tfx_vertex_format tfx_vertex_format_start() {
@@ -1488,7 +1590,7 @@ void tfx_vertex_format_end(tfx_vertex_format *fmt) {
 			case TFX_TYPE_USHORT:
 			case TFX_TYPE_SHORT: bytes = 2; break;
 			case TFX_TYPE_FLOAT: bytes = 4; break;
-			default: assert(false); break;
+			default: assert(0); break;
 		}
 		vc->offset = stride;
 		stride += vc->size * bytes;
@@ -1497,12 +1599,14 @@ void tfx_vertex_format_end(tfx_vertex_format *fmt) {
 }
 
 tfx_buffer tfx_buffer_new(const void *data, size_t size, tfx_vertex_format *format, tfx_buffer_flags flags) {
+	assert(did_you_call_tfx_reset);
+
 	GLenum gl_usage = GL_STATIC_DRAW;
 	switch (flags) {
 		case TFX_BUFFER_MUTABLE: gl_usage = GL_DYNAMIC_DRAW; break;
 		//case TFX_BUFFER_STREAM:  gl_usage = GL_STREAM_DRAW; break;
 		default: break;
-		//default: assert(false); break;
+		//default: assert(0); break;
 	}
 
 	tfx_buffer buffer;
@@ -1520,7 +1624,12 @@ tfx_buffer tfx_buffer_new(const void *data, size_t size, tfx_vertex_format *form
 	CHECK(tfx_glBindBuffer(GL_ARRAY_BUFFER, buffer.gl_id));
 
 	if (size != 0) {
-		CHECK(tfx_glBufferData(GL_ARRAY_BUFFER, size, data, gl_usage));
+		if (tfx_glBufferStorage) {
+			CHECK(tfx_glBufferStorage(GL_ARRAY_BUFFER, size, data, (gl_usage == GL_DYNAMIC_DRAW ? (GL_DYNAMIC_STORAGE_BIT | GL_MAP_WRITE_BIT) : 0)))
+		}
+		else {
+			CHECK(tfx_glBufferData(GL_ARRAY_BUFFER, size, data, gl_usage));
+		}
 	}
 
 	sb_push(g_buffers, buffer);
@@ -1563,6 +1672,7 @@ void tfx_buffer_free(tfx_buffer *buf) {
 	CHECK(tfx_glDeleteBuffers(1, &buf->gl_id));
 	if (buf->internal) {
 		free(buf->internal);
+		buf->internal = NULL;
 	}
 	int nb = sb_count(g_buffers);
 	for (int i = 0; i < nb; i++) {
@@ -1584,6 +1694,8 @@ typedef struct tfx_texture_params {
 } tfx_texture_params;
 
 tfx_texture tfx_texture_new(uint16_t w, uint16_t h, uint16_t layers, const void *data, tfx_format format, uint16_t flags) {
+	assert(did_you_call_tfx_reset);
+
 	tfx_texture t;
 	memset(&t, 0, sizeof(tfx_texture));
 
@@ -1624,7 +1736,7 @@ tfx_texture tfx_texture_new(uint16_t w, uint16_t h, uint16_t layers, const void 
 		// integer formats
 		case TFX_FORMAT_RGB565:
 			params->format = GL_RGB;
-			params->internal_format = GL_RGB;
+			params->internal_format = GL_RGB565;
 			params->type = GL_UNSIGNED_SHORT_5_6_5;
 			break;
 		case TFX_FORMAT_SRGB8:
@@ -1639,7 +1751,7 @@ tfx_texture tfx_texture_new(uint16_t w, uint16_t h, uint16_t layers, const void 
 			break;
 		case TFX_FORMAT_RGBA8:
 			params->format = GL_RGBA;
-			params->internal_format = GL_RGBA;
+			params->internal_format = GL_RGBA8;
 			params->type = GL_UNSIGNED_BYTE;
 			break;
 		case TFX_FORMAT_RGB10A2:
@@ -1718,7 +1830,7 @@ tfx_texture tfx_texture_new(uint16_t w, uint16_t h, uint16_t layers, const void 
 		case TFX_FORMAT_RGBA8_D16:
 		case TFX_FORMAT_RGBA8_D24:
 		default:
-			assert(false);
+			assert(0);
 			break;
 	}
 	t.is_stencil = stencil;
@@ -1733,13 +1845,13 @@ tfx_texture tfx_texture_new(uint16_t w, uint16_t h, uint16_t layers, const void 
 
 	CHECK(tfx_glGenTextures(t.gl_count, t.gl_ids));
 	bool aniso = (g_flags & TFX_RESET_MAX_ANISOTROPY) == TFX_RESET_MAX_ANISOTROPY;
-	bool gen_mips = (flags & TFX_TEXTURE_GEN_MIPS) == TFX_TEXTURE_GEN_MIPS;
 	bool reserve_mips = (flags & TFX_TEXTURE_RESERVE_MIPS) == TFX_TEXTURE_RESERVE_MIPS;
+	bool gen_mips = (flags & TFX_TEXTURE_GEN_MIPS) == TFX_TEXTURE_GEN_MIPS;
 	bool cube     = (flags & TFX_TEXTURE_CUBE) == TFX_TEXTURE_CUBE;
 	GLenum mode = 0;
 	if (layers > 1) {
 		if (cube) {
-			assert(false); // only supported by GL4.0+ or with ARB_texture_cube_map_array
+			assert(0); // only supported by GL4.0+ or with ARB_texture_cube_map_array
 			mode = GL_TEXTURE_CUBE_MAP_ARRAY;
 		}
 		else {
@@ -1771,7 +1883,12 @@ tfx_texture tfx_texture_new(uint16_t w, uint16_t h, uint16_t layers, const void 
 			assert(!reserve_mips);
 			mode = GL_TEXTURE_2D_MULTISAMPLE;
 			CHECK(tfx_glBindTexture(mode, t.gl_ids[i]));
-			CHECK(tfx_glTexImage2DMultisample(mode, samples, params->internal_format, w, h, false));
+			if (tfx_glTexStorage2DMultisample) {
+				CHECK(tfx_glTexStorage2DMultisample(mode, samples, params->internal_format, w, h, false));
+			}
+			else {
+				CHECK(tfx_glTexImage2DMultisample(mode, samples, params->internal_format, w, h, false));
+			}
 			continue;
 		}
 
@@ -1802,25 +1919,48 @@ tfx_texture tfx_texture_new(uint16_t w, uint16_t h, uint16_t layers, const void 
 
 			// note: GL 3.3, ES 3.0+. combined swizzle isn't in gles.
 			GLint swizzleMask[] = { GL_RED, GL_RED, GL_RED, GL_ONE };
-			CHECK(tfx_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, swizzleMask[0]));
-			CHECK(tfx_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_G, swizzleMask[1]));
-			CHECK(tfx_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, swizzleMask[2]));
-			CHECK(tfx_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, swizzleMask[3]));
+			CHECK(tfx_glTexParameteri(mode, GL_TEXTURE_SWIZZLE_R, swizzleMask[0]));
+			CHECK(tfx_glTexParameteri(mode, GL_TEXTURE_SWIZZLE_G, swizzleMask[1]));
+			CHECK(tfx_glTexParameteri(mode, GL_TEXTURE_SWIZZLE_B, swizzleMask[2]));
+			CHECK(tfx_glTexParameteri(mode, GL_TEXTURE_SWIZZLE_A, swizzleMask[3]));
 		}
 		CHECK(tfx_glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
 
 		if (layers > 1) {
 			if (cube) {
-				assert(false);
+				assert(0);
+			}
+			else if (tfx_glTexStorage3D) {
+				// mipmaps are currently unsupported for 3d/array textures.
+				CHECK(tfx_glTexStorage3D(mode, 1, params->internal_format, w, h, layers));
+				if (data) {
+					CHECK(tfx_glTexSubImage3D(mode, 0, 0, 0, 0, w, h, layers, params->format, params->type, data));
+				}
 			}
 			else {
 				CHECK(tfx_glTexImage3D(mode, 0, params->internal_format, w, h, layers, 0, params->format, params->type, data));
 			}
 		}
 		if (cube) {
-			uint16_t size = w > h ? w : h;
-			for (int j = 0; j < 6; j++) {
-				CHECK(tfx_glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + j, 0, params->internal_format, size, size, 0, params->format, params->type, NULL));
+			const uint16_t size = w > h ? w : h;
+			if (tfx_glTexStorage2D) {
+				CHECK(tfx_glTexStorage2D(mode, mip_filter ? t.mip_count : 1, params->internal_format, size, size));
+			}
+			else {
+				uint16_t mip_size = size;
+				for (i = 0; i < t.mip_count; i++) {
+					for (int j = 0; j < 6; j++) {
+						CHECK(tfx_glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + j, 0, params->internal_format, size, size, 0, params->format, params->type, NULL));
+					}
+					mip_size /= 2;
+					mip_size = mip_size > 0 ? mip_size : 1;
+				}
+			}
+		}
+		else if (tfx_glTexStorage2D) {
+			CHECK(tfx_glTexStorage2D(mode, mip_filter ? t.mip_count : 1, params->internal_format, w, h));
+			if (data) {
+				CHECK(tfx_glTexSubImage2D(mode, 0, 0, 0, w, h, params->format, params->type, data));
 			}
 		}
 		else {
@@ -1930,7 +2070,7 @@ bool canvas_reconfigure(tfx_canvas *c, bool msaa) {
 	// TODO: return something more error-y
 	GLenum status = CHECK(tfx_glCheckFramebufferStatus(GL_FRAMEBUFFER));
 	if (status != GL_FRAMEBUFFER_COMPLETE) {
-		assert(false);
+		assert(0);
 		return false;
 	}
 
@@ -1938,6 +2078,8 @@ bool canvas_reconfigure(tfx_canvas *c, bool msaa) {
 }
 
 tfx_canvas tfx_canvas_attachments_new(bool claim_attachments, int count, tfx_texture *attachments) {
+	assert(did_you_call_tfx_reset);
+
 	tfx_canvas c;
 	memset(&c, 0, sizeof(tfx_canvas));
 
@@ -2024,6 +2166,8 @@ void tfx_canvas_free(tfx_canvas *c) {
 }
 
 tfx_canvas tfx_canvas_new(uint16_t w, uint16_t h, tfx_format format, uint16_t flags) {
+	assert(did_you_call_tfx_reset);
+
 	tfx_texture attachments[2];
 	int n = 0;
 
@@ -2095,7 +2239,7 @@ tfx_canvas tfx_canvas_new(uint16_t w, uint16_t h, tfx_format format, uint16_t fl
 			depth_fmt = format;
 			break;
 		}
-		default: assert(false);
+		default: assert(0);
 	}
 
 	if (has_color) {
@@ -2182,7 +2326,7 @@ void tfx_view_set_flags(uint8_t id, tfx_view_flags flags) {
 	}
 	// NYI
 	if (FLAG(flags, TFX_VIEW_SORT_SEQUENTIAL)) {
-		assert(false);
+		assert(0);
 		view->flags |= TFXI_VIEW_SORT_SEQUENTIAL;
 	}
 #undef FLAG
@@ -2243,7 +2387,7 @@ void tfx_view_set_depth_test(uint8_t id, tfx_depth_test mode) {
 			view->flags |= TFXI_VIEW_DEPTH_TEST_EQ;
 			break;
 		}
-		default: assert(false); break;
+		default: assert(0); break;
 	}
 }
 
@@ -2514,8 +2658,16 @@ void tfx_touch(uint8_t id) {
 	tfx_view *view = &g_back.views[id];
 	assert(view != NULL);
 
+	tfx_draw_callback cb = g_tmp_draw.callback;
+	uint64_t flags = g_tmp_draw.flags;
 	reset();
+	g_tmp_draw.callback = cb;
+	if (g_tmp_draw.callback) {
+		g_tmp_draw.flags = flags;
+	}
 	sb_push(view->draws, g_tmp_draw);
+	g_tmp_draw.callback = NULL;
+	g_tmp_draw.flags = 0;
 }
 
 void tfx_blit(uint8_t dst, uint8_t src, uint16_t x, uint16_t y, uint16_t w, uint16_t h, int mip) {
@@ -2569,7 +2721,7 @@ static void release_compiler() {
 	g_shaderc_allocated = false;
 }
 
-void update_uniforms(tfx_draw *draw) {
+static void update_uniforms(tfx_draw *draw) {
 	int nu = sb_count(draw->uniforms);
 	for (int j = 0; j < nu; j++) {
 		tfx_uniform uniform = draw->uniforms[j];
@@ -2594,7 +2746,7 @@ void update_uniforms(tfx_draw *draw) {
 			case TFX_UNIFORM_MAT2:  CHECK(tfx_glUniformMatrix2fv(loc, uniform.last_count, 0, uniform.fdata)); break;
 			case TFX_UNIFORM_MAT3:  CHECK(tfx_glUniformMatrix3fv(loc, uniform.last_count, 0, uniform.fdata)); break;
 			case TFX_UNIFORM_MAT4:  CHECK(tfx_glUniformMatrix4fv(loc, uniform.last_count, 0, uniform.fdata)); break;
-			default: assert(false); break;
+			default: assert(0); break;
 		}
 	}
 }
@@ -2742,20 +2894,23 @@ static void render_letter(
 	uint32_t *pixels) {
 	// Calculate character index in font character array
 	// Shifting by 3 to the left is equal to multiplying by 2^3
-	int baseIndex = charCode << 3;
+	unsigned baseIndex = charCode << 3;
 	// Iterate over character raster rows
-	for (int curRow = 0; curRow < 8; curRow++) {
+	for (unsigned curRow = 0; curRow < 8; curRow++) {
 		// Get character raster row bits
-		int rowBits = vga_font[baseIndex + curRow];
+		const unsigned rowBits = vga_font[baseIndex + curRow];
+		const unsigned y = baseRow + curRow + 2;
 		// Iterate over character raster row bits (columns)
-		for (int curCol = 0; curCol < 8; curCol++) {
+		for (unsigned curCol = 0; curCol < 8; curCol++) {
 			// Calculate position of pixel on image
-			int x = baseCol + curCol + 2;
-			int y = baseRow + curRow + 2;
+			unsigned x = baseCol + curCol + 2;
 			// Calculate pixel index in image data array
-			int index = y * pitch + x;
+			unsigned index = y * pitch + x;
+			// assert(x < g_debug_overlay.width);
+			// assert(y < g_debug_overlay.height);
 			// Determine pixel color based on current bit value
-			pixels[index] = (((rowBits << curCol) & 0x80) == 0x80) ? fg : bg;
+			uint32_t fill = (((rowBits << curCol) & 0x80) == 0x80) ? fg : bg;
+			pixels[index] = fill;
 		}
 	}
 }
@@ -2825,32 +2980,36 @@ void tfx_debug_set_palette(const uint32_t *palette) {
 }
 
 void tfx_debug_blit_rgba(const int x, const int y, const int w, const int h, const uint32_t *pixels) {
+	assert(did_you_call_tfx_reset);
+
 	if ((g_flags & TFX_RESET_DEBUG_OVERLAY) != TFX_RESET_DEBUG_OVERLAY) {
 		return;
 	}
 
-	const int bufw = g_debug_overlay.width;
-	const int bufh = g_debug_overlay.height;
-	for (unsigned _y = 0; _y < h; _y++) {
+	const unsigned bufw = g_debug_overlay.width;
+	const unsigned bufh = g_debug_overlay.height;
+	for (unsigned _y = 0; _y < (unsigned)h; _y++) {
 		unsigned row_base = (y + _y) * bufw;
 		unsigned row_local = _y * w;
-		for (unsigned _x = 0; _x < w; _x++) {
+		for (unsigned _x = 0; _x < (unsigned)w; _x++) {
 			g_debug_data[row_base + _x + x] = pixels[row_local + _x];
 		}
 	}
 }
 
 void tfx_debug_blit_pal(const int x, const int y, const int w, const int h, const uint8_t *pixels) {
+	assert(did_you_call_tfx_reset);
+
 	if ((g_flags & TFX_RESET_DEBUG_OVERLAY) != TFX_RESET_DEBUG_OVERLAY) {
 		return;
 	}
 
-	const int bufw = g_debug_overlay.width;
-	const int bufh = g_debug_overlay.height;
-	for (unsigned _y = 0; _y < h; _y++) {
+	const unsigned bufw = g_debug_overlay.width;
+	const unsigned bufh = g_debug_overlay.height;
+	for (unsigned _y = 0; _y < (unsigned)h; _y++) {
 		unsigned row_base = (y + _y) * bufw;
 		unsigned row_local = _y * w;
-		for (unsigned _x = 0; _x < w; _x++) {
+		for (unsigned _x = 0; _x < (unsigned)w; _x++) {
 			uint8_t idx = pixels[row_local + _x];
 			g_debug_data[row_base + _x + x] = g_debug_palette[idx];
 		}
@@ -2858,6 +3017,8 @@ void tfx_debug_blit_pal(const int x, const int y, const int w, const int h, cons
 }
 
 void tfx_debug_print(const int baserow, const int basecol, const uint16_t bg_fg, const int auto_wrap, const char *str) {
+	assert(did_you_call_tfx_reset);
+
 	if ((g_flags & TFX_RESET_DEBUG_OVERLAY) != TFX_RESET_DEBUG_OVERLAY) {
 		return;
 	}
@@ -2867,8 +3028,8 @@ void tfx_debug_print(const int baserow, const int basecol, const uint16_t bg_fg,
 	const int bufh = g_debug_overlay.height;
 	int row = baserow;
 	int col = basecol;
-	const char bg_idx = bg_fg >> 8;
-	const char fg_idx = bg_fg & 0xff;
+	const size_t bg_idx = bg_fg >> 8;
+	const size_t fg_idx = bg_fg & 0xff;
 	const uint32_t bg = g_debug_palette[bg_idx];
 	const uint32_t fg = g_debug_palette[fg_idx];
 	while (*head) {
@@ -2907,6 +3068,8 @@ void tfx_debug_print(const int baserow, const int basecol, const uint16_t bg_fg,
 }
 
 tfx_stats tfx_frame() {
+	assert(did_you_call_tfx_reset);
+
 	/* This isn't used on RPi, but should free memory on some devices. When
 	 * you call tfx_frame, you should be done with your shader compiles for
 	 * a good while, since that should only be done during init/loading. */
@@ -2956,13 +3119,16 @@ tfx_stats tfx_frame() {
 	if (g_transient_buffer.offset > 0) {
 		CHECK(tfx_glBindBuffer(GL_ARRAY_BUFFER, g_transient_buffer.buffers[0].gl_id));
 		if (tfx_glMapBufferRange && tfx_glUnmapBuffer) {
-			void *ptr = tfx_glMapBufferRange(GL_ARRAY_BUFFER, 0, g_transient_buffer.offset, GL_MAP_WRITE_BIT);
+			// this is backed by multiple buffers, so invalidate might be pointless. need to profile.
+			void *ptr = tfx_glMapBufferRange(GL_ARRAY_BUFFER, 0, g_transient_buffer.offset, GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_RANGE_BIT);
 			if (ptr) {
 				memcpy(ptr, g_transient_buffer.data, g_transient_buffer.offset);
 				CHECK(tfx_glUnmapBuffer(GL_ARRAY_BUFFER));
 			}
 		}
 		else {
+			// orphan the buffer explicitly if mapping isn't available
+			CHECK(tfx_glBufferData(GL_ARRAY_BUFFER, TFX_TRANSIENT_BUFFER_SIZE, NULL, GL_DYNAMIC_DRAW));
 			CHECK(tfx_glBufferSubData(GL_ARRAY_BUFFER, 0, g_transient_buffer.offset, g_transient_buffer.data));
 		}
 	}
@@ -2974,13 +3140,14 @@ tfx_stats tfx_frame() {
 		if (params) {
 			CHECK(tfx_glBindBuffer(GL_ARRAY_BUFFER, buf->gl_id));
 			if (tfx_glMapBufferRange && tfx_glUnmapBuffer) {
-				void *ptr = tfx_glMapBufferRange(GL_ARRAY_BUFFER, params->offset, params->size, GL_MAP_WRITE_BIT);
+				void *ptr = tfx_glMapBufferRange(GL_ARRAY_BUFFER, params->offset, params->size, GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_RANGE_BIT);
 				if (ptr) {
 					memcpy(ptr, params->update_data, params->size);
 					CHECK(tfx_glUnmapBuffer(GL_ARRAY_BUFFER));
 				}
 			}
 			else {
+				CHECK(tfx_glBufferData(GL_ARRAY_BUFFER, params->size, NULL, GL_DYNAMIC_DRAW));
 				CHECK(tfx_glBufferSubData(GL_ARRAY_BUFFER, params->offset, params->size, params->update_data));
 			}
 			free(params);
@@ -2997,6 +3164,9 @@ tfx_stats tfx_frame() {
 			// spin the buffer id before updating
 			tex->gl_idx = (tex->gl_idx + 1) % tex->gl_count;
 			tfx_glBindTexture(GL_TEXTURE_2D, tex->gl_ids[tex->gl_idx]);
+			if (tfx_glInvalidateTexSubImage && !g_platform_data.use_gles) {
+				tfx_glInvalidateTexSubImage(tex->gl_ids[tex->gl_idx], 0, 0, 0, 0, tex->width, tex->height, 1);
+			}
 			tfx_glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, tex->width, tex->height, internal->format, internal->type, internal->update_data);
 			internal->update_data = NULL;
 		}
@@ -3187,7 +3357,7 @@ tfx_stats tfx_frame() {
 					CHECK(tfx_glBindFramebuffer(GL_READ_FRAMEBUFFER, src->msaa ? src->gl_fbo[1] : src->gl_fbo[0]));
 					if (blit->source_mip != src->current_mip) {
 						// TODO: calculate correct dest size, update mip bindings
-						assert(false);
+						assert(0);
 						// CHECK(tfx_glFramebufferTexture2D(GL_FRAMEBUFFER, attach, GL_TEXTURE_2D, attachment->gl_ids[0], canvas->current_mip));
 					}
 					CHECK(tfx_glBlitFramebuffer(
@@ -3229,7 +3399,7 @@ tfx_stats tfx_frame() {
 						GLenum fmt = internal->internal_format;
 						switch (fmt) {
 							case GL_DEPTH_COMPONENT16: fmt = GL_R16F; break;
-							case GL_DEPTH_COMPONENT24: assert(false); break;
+							case GL_DEPTH_COMPONENT24: assert(0); break;
 							case GL_DEPTH_COMPONENT32: fmt = GL_R32F; break;
 							default: break;
 						}
@@ -3524,6 +3694,16 @@ tfx_stats tfx_frame() {
 				default: break; // unspecified = triangles.
 			}
 
+			// not available on gles
+			if (CHANGED(flags_diff, TFX_STATE_WIREFRAME) && !g_platform_data.use_gles) {
+				if (draw.flags & TFX_STATE_WIREFRAME) {
+					CHECK(tfx_glPolygonMode(GL_FRONT_AND_BACK, GL_LINE));
+				}
+				else {
+					CHECK(tfx_glPolygonMode(GL_FRONT_AND_BACK, GL_FILL));
+				}
+			}
+
 			if (draw.use_vbo) {
 				GLuint vbo = draw.vbo.gl_id;
 	#ifdef TFX_DEBUG
@@ -3565,7 +3745,7 @@ tfx_stats tfx_frame() {
 						case TFX_TYPE_USHORT: gl_type = GL_UNSIGNED_SHORT; break;
 						case TFX_TYPE_SHORT:  gl_type = GL_SHORT; break;
 						case TFX_TYPE_FLOAT: break;
-						default: assert(false); break;
+						default: assert(0); break;
 					}
 					if (i >= last_count) {
 						CHECK(tfx_glEnableVertexAttribArray(real));
@@ -3722,22 +3902,24 @@ tfx_stats tfx_frame() {
 		uint16_t color[2] = { 0x140f, 0x160f };
 
 		const char *str = tfx_sprintf("Draws: %5d", stats.draws);
-		tfx_debug_print(row++, 0, color[row % 2], 0, str);
-		free(str);
+		int lrow = row; row++; // avoid warning from -Wunsequenced
+		tfx_debug_print(lrow, 0, color[row % 2], 0, str);
+		free((char*)str);
 
+		lrow = row; row++;
 		str = tfx_sprintf("Blits: %5d", stats.blits);
-		tfx_debug_print(row++, 0, color[row % 2], 0, str);
-		free(str);
+		tfx_debug_print(lrow, 0, color[row % 2], 0, str);
+		free((char*)str);
 
 		int max_width = 0;
-		for (int i = 0; i < stats.num_timings; i++) {
+		for (unsigned i = 0; i < stats.num_timings; i++) {
 			int len = strnlen(stats.timings[i].name, 100);
 			if (len > max_width) {
 				max_width = len;
 			}
 		}
 		uint64_t sum = 0;
-		for (int i = 0; i < stats.num_timings; i++, row++) {
+		for (unsigned i = 0; i < stats.num_timings; i++, row++) {
 			sum += stats.timings[i].time;
 			str = stats.timings[i].name;
 			int width = 5 + max_width;
@@ -3745,16 +3927,16 @@ tfx_stats tfx_frame() {
 
 			str = tfx_sprintf("%3d", stats.timings[i].id);
 			tfx_debug_print(row, 0, color[row % 2], 0, str);
-			free(str);
+			free((char*)str);
 
 			str = tfx_sprintf("%dus", stats.timings[i].time / 1000);
 			tfx_debug_print(row, 8 + width - strnlen(str, 20), color[row % 2], 0, str);
-			free(str);
+			free((char*)str);
 		}
 		tfx_debug_print(row, 0, 0x100f, 0, "Total:");
 		str = tfx_sprintf("%dus", sum / 1000);
-		tfx_debug_print(row, 13 + max_width - strlen(str, 20), 0x100f, 0, str);
-		free(str);
+		tfx_debug_print(row, 13 + max_width - strnlen(str, 20), 0x100f, 0, str);
+		free((char*)str);
 	}
 
 	return stats;

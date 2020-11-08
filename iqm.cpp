@@ -7,6 +7,7 @@
 #include <cassert>
 #include <string>
 #include <vector>
+#include <sys/stat.h>
 
 #define IQM_MAGIC "INTERQUAKEMODEL"
 #define IQM_VERSION 2
@@ -100,17 +101,6 @@ struct iqmvertexarray {
  	float xyradius, radius;
  };
 
-enum MeshComponent {
-	MC_NONE = 0,
-	MC_POSITION = 1 << 0,
-	MC_NORMAL = 1 << 1,
-	MC_TEXCOORD = 1 << 2,
-	MC_TANGENT = 1 << 3,
-	MC_BONE = 1 << 4,
-	MC_WEIGHT = 1 << 5,
-	MC_COLOR = 1 << 6
-};
-
 static MeshComponent iqm2mc(unsigned int type) {
 	switch (type) {
 		case IQM_POSITION:     return MC_POSITION;
@@ -162,13 +152,6 @@ static bool check_sanity(const std::string &filename, std::vector<uint8_t> &data
 	return true;
 }
 
-struct MeshChunk {
-	int offset;
-	int num_indices;
-	std::string name;
-	std::string material;
-};
-
 static void read_iqm_chunks(const std::vector<uint8_t> &data, const iqmheader *header, std::vector<MeshChunk> &chunks) {
 	chunks.resize(header->num_meshes);
 	iqmmesh *meshes = (iqmmesh *)& data[header->ofs_meshes];
@@ -181,38 +164,29 @@ static void read_iqm_chunks(const std::vector<uint8_t> &data, const iqmheader *h
 	}
 }
 
-union Rights {
-	unsigned u;
-	float f;
-};
-
-enum LayerType {
-	MT_INT,
-	MT_FLOAT
-};
-
-struct MeshLayer {
-	MeshComponent component;
-	std::vector<Rights> data;
-	LayerType type;
-	unsigned count;
-};
-
-struct MeshData {
-	unsigned mask;
-	bool need_int_indices;
-	std::vector<MeshChunk> chunks;
-	std::vector<MeshLayer> layers;
-	std::vector<unsigned> indices;
-};
-
 namespace fs {
 bool read_vector(std::vector<uint8_t> &data, const std::string &filename) {
-	return false;
+	FILE *handle = fopen(filename.c_str(), "rb");
+	if (!handle) {
+		puts("failed to load, probably invalid path\n");
+		return false;
+	}
+	int fd = fileno(handle);
+
+
+	struct stat statbuf;
+	fstat(fd, &statbuf);
+	data.resize(statbuf.st_size);
+	size_t read = fread(&data[0], 1, statbuf.st_size, handle);
+	if (read < statbuf.st_size) {
+		puts("failed to load model, short read\n");
+		return false;
+	}
+	return true;
 }
 }
 
-static bool read_iqm_data(MeshData *md, const std::string &filename) {
+bool iqm_read_data(MeshData *md, const std::string &filename) {
 	std::vector<uint8_t> data;
 	if (fs::read_vector(data, filename)) {
 		printf("[IQM] Reading file %s...\n", filename.c_str());
@@ -235,6 +209,7 @@ static bool read_iqm_data(MeshData *md, const std::string &filename) {
 		iqmvertexarray va = vas[i];
 		MeshLayer layer;
 		layer.component = iqm2mc(va.type);
+		layer.should_normalize = should_normalize(va.type);
 		if (va.format == IQM_FLOAT) {
 			layer.type = MT_FLOAT;
 			switch (va.type) {
@@ -251,17 +226,19 @@ static bool read_iqm_data(MeshData *md, const std::string &filename) {
 				data.f = fvdata[i];
 				layer.data.push_back(data);
 			}
+			layer.bytes = layer.data.size() * sizeof(float);
 		}
 		else if (va.format == IQM_UBYTE) {
 			layer.type = MT_INT;
 			layer.count = 1;
 			layer.data.reserve(header->num_vertexes);
-			uint8_t *uvdata = (uint8_t *)& data[va.offset];
+			unsigned *uvdata = (unsigned*)& data[va.offset];
 			for (size_t i = 0; i < layer.data.size(); i++) {
 				Rights data;
 				data.u = uvdata[i];
 				layer.data.push_back(data);
 			}
+			layer.bytes = layer.data.size() * sizeof(unsigned);
 		}
 		else {
 			continue;
@@ -271,12 +248,18 @@ static bool read_iqm_data(MeshData *md, const std::string &filename) {
 	}
 
 	// Read the triangle list into an index buffer, convert if needed.
-	iqmtriangle *triangles = (iqmtriangle *)& data[header->ofs_triangles];
+	iqmtriangle *triangles = (iqmtriangle *)&data[header->ofs_triangles];
 
-	for (unsigned int i = 0; i < header->num_triangles; i++) {
-		md->indices.push_back(triangles[i].vertex[0]);
-		md->indices.push_back(triangles[i].vertex[2]);
-		md->indices.push_back(triangles[i].vertex[1]);
+	md->indices.resize((size_t)header->num_triangles * 3);
+	for (size_t i = 0; i < header->num_triangles; i++) {
+		md->indices[i*3] = triangles[i].vertex[0];
+		md->indices[i*3+1] = triangles[i].vertex[2];
+		md->indices[i*3+2] = triangles[i].vertex[1];
+	}
+
+	md->indices_bytes = 0;
+	if (!md->indices.empty()) {
+		md->indices_bytes = md->indices.size() * sizeof(md->indices[0]);
 	}
 
 	read_iqm_chunks(data, header, md->chunks);

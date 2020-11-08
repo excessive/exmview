@@ -52,6 +52,7 @@ enum {
 
 	// misc state
 	TFX_STATE_MSAA            = 1 << 12,
+	TFX_STATE_WIREFRAME       = 1 << 13,
 
 	TFX_STATE_DEFAULT = 0
 		| TFX_STATE_CULL_CCW
@@ -344,9 +345,17 @@ TFX_API uint16_t tfx_view_get_height(uint8_t id);
 TFX_API void tfx_view_get_dimensions(uint8_t id, uint16_t *w, uint16_t *h);
 // TFX_API void tfx_view_set_transform(uint8_t id, float *view, float *proj_l, float *proj_r);
 
-TFX_API tfx_program tfx_program_new(const char *vss, const char *fss, const char *attribs[]);
-TFX_API tfx_program tfx_program_gs_new(const char *gss, const char *vss, const char *fss, const char *attribs[]);
+// you may pass -1 for attrib_count to use a null-terminated list for attribs
+TFX_API tfx_program tfx_program_new(const char *vss, const char *fss, const char *attribs[], const int attrib_count);
+// you may pass -1 for attrib_count to use a null-terminated list for attribs
+TFX_API tfx_program tfx_program_len_new(const char *vss, const int _vs_len, const char *fss, const int _fs_len, const char *attribs[], const int attrib_count);
+// you may pass -1 for attrib_count to use a null-terminated list for attribs
+TFX_API tfx_program tfx_program_gs_len_new(const char *_gss, const int _gs_len, const char *_vss, const int _vs_len, const char *_fss, const int _fs_len, const char *attribs[], const int attrib_count);
+// you may pass -1 for attrib_count to use a null-terminated list for attribs
+TFX_API tfx_program tfx_program_gs_new(const char *gss, const char *vss, const char *fss, const char *attribs[], const int attrib_count);
+TFX_API tfx_program tfx_program_cs_len_new(const char *css, const int _cs_len);
 TFX_API tfx_program tfx_program_cs_new(const char *css);
+// TODO: add tfx_program_free(tfx_program). they are currently cleaned up with tfx_shutdown.
 
 TFX_API tfx_uniform tfx_uniform_new(const char *name, tfx_uniform_type type, int count);
 
@@ -367,6 +376,7 @@ TFX_API void tfx_set_indices(tfx_buffer *ibo, int count, int offset);
 TFX_API void tfx_dispatch(uint8_t id, tfx_program program, uint32_t x, uint32_t y, uint32_t z);
 // TFX_API void tfx_submit_ordered(uint8_t id, tfx_program program, uint32_t depth, bool retain);
 TFX_API void tfx_submit(uint8_t id, tfx_program program, bool retain);
+// submit an empty draw. useful for using draw callbacks and ensuring views are processed.
 TFX_API void tfx_touch(uint8_t id);
 
 TFX_API void tfx_blit(uint8_t src, uint8_t dst, uint16_t x, uint16_t y, uint16_t w, uint16_t h, int mip);

@@ -7,6 +7,8 @@
 #include "nanovg/src/nanovg_gl.h"
 #include <string>
 #include <algorithm>
+#include <vector>
+#include <unordered_map>
 
 #include "widgets.hpp"
 #include "gui.hpp"
@@ -20,6 +22,7 @@
 #endif
 
 #include "tinyfx.h"
+#include "iqm.hpp"
 
 // used by widgets
 bool g_focus = true;
@@ -103,8 +106,8 @@ tfx_transient_buffer draw_quad(float x, float y, float w, float h, float z = 0.0
 }
 
 static bool loaded = false;
-static tfx_program flat_textured;
-static tfx_uniform albedo, m, w, light;
+static tfx_program flat_textured, shaded;
+static tfx_uniform albedo, world_from_local, screen_from_local, light;
 static tfx_texture bg_gradient;
 
 #include "shaders.hpp"
@@ -125,7 +128,7 @@ static tfx_program load(ShaderType shader) {
 	else if (def.vs_fs != NULL && def.attribs != NULL) {
 		std::string src = decash(std::string(def.vs_fs));
 		const char *csrc = src.c_str();
-		ret = tfx_program_new(csrc, csrc, def.attribs);
+		ret = tfx_program_new(csrc, csrc, def.attribs, -1);
 	}
 	assert(ret != 0);
 	return ret;
@@ -139,9 +142,19 @@ static unsigned swap32(unsigned v) {
 	;
 }
 
+struct Model {
+	unsigned total_indices;
+	std::unordered_map<int, tfx_buffer> buffers;
+	std::vector<MeshChunk> chunks;
+	tfx_buffer ibo;
+};
+static std::vector<Model> g_models;
+
 static void gui_redraw(NVGcontext *vg) {
 	if (!loaded) {
 		flat_textured = load(SHADER_GRADIENT);
+		shaded = load(SHADER_SHADED);
+		assert(shaded);
 		uint32_t bg_pixels9[] = {
 			swap32(0x5F1F3FFF), swap32(0x5F1F3FFF), swap32(0x5F1F3FFF),
 			swap32(0x8F2F5FFF), swap32(0xA7376FFF), swap32(0x8F2F5FFF),
@@ -156,8 +169,8 @@ static void gui_redraw(NVGcontext *vg) {
 		//float c1[4] = { 0.75, 0.25, 0.5, 1.0 };
 		bg_gradient = tfx_texture_new(1, 2, 1, bg_pixels2, TFX_FORMAT_RGBA8, TFX_TEXTURE_FILTER_LINEAR);
 		albedo = tfx_uniform_new("s_albedo", TFX_UNIFORM_INT, 1);
-		m = tfx_uniform_new("u_local_to_screen", TFX_UNIFORM_MAT4, 1);
-		w = tfx_uniform_new("u_local_to_world", TFX_UNIFORM_MAT4, 1);
+		screen_from_local = tfx_uniform_new("u_screen_from_local", TFX_UNIFORM_MAT4, 1);
+		world_from_local = tfx_uniform_new("u_world_from_local", TFX_UNIFORM_MAT4, 1);
 		light = tfx_uniform_new("u_light", TFX_UNIFORM_VEC4, 1);
 		loaded = true;
 	}
@@ -189,6 +202,10 @@ static void gui_redraw(NVGcontext *vg) {
 	tfx_view_set_name(0, "Background");
 	tfx_touch(0);
 
+	tfx_view_set_depth_test(1, TFX_DEPTH_TEST_LT);
+	tfx_view_set_name(1, "Main");
+	tfx_touch(1);
+
 	//float aspect = fmaxf((float)w / h, (float)h / w);
 	float proj[16] = {
 		2.0f / w, 0.0f, 0.0f, 0.0f,
@@ -196,20 +213,88 @@ static void gui_redraw(NVGcontext *vg) {
 		0.0f, 0.0f, 1.0f, 0.0f,
 		-1.0f, 1.0f, 0.0f, 1.0f
 	};
-	tfx_set_uniform(&m, proj, 1);
+	tfx_set_uniform(&screen_from_local, proj, 1);
 
 	tfx_set_texture(&albedo, &bg_gradient, 0);
 	tfx_set_transient_buffer(draw_quad(0, 0, w, h, 0));
-	tfx_set_state(TFX_STATE_DEFAULT);
+	tfx_set_state(TFX_STATE_RGB_WRITE | TFX_STATE_CULL_CCW);
 	tfx_submit(0, flat_textured, false);
 
-	//tfx_set_uniform(&m, mvp, 1);
-	//tfx_set_uniform(&w, model, 1);
-	//tfx_set_vertices(&vbo, vert_count);
-	//tfx_set_indices(&ibo, count, 0);
-	//tfx_set_state(TFX_STATE_DEFAULT);
-	//tfx_submit(0, shaded, false);
+	struct v3 { float x, y, z; };
+	v3 at = { 0.0f, 0.0f, 0.0f };
+	v3 eye = { 0.0f, -5.0f, 1.7f };
+	v3 up = { 0.0f, 0.0f, 1.0f };
+	const auto dot = [](v3 a, v3 b) {
+		return a.x * b.x + a.y * b.y + a.z * b.z;
+	};
+	const auto normalize = [](v3 v) {
+		float len = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+		return v3 { v.x / len, v.y / len, v.z / len };
+	};
+	const auto cross = [](v3 a, v3 b) {
+		return v3 {
+			a.y * b.z - a.z * b.y,
+			a.z * b.x - a.x * b.z,
+			a.x * b.y - a.y * b.x
+		};
+	};
+	v3 forward = normalize(v3 { at.x - eye.x, at.y - eye.y, at.z - eye.z });
+	v3 side = normalize(cross(forward, up));
+	v3 new_up = cross(side, forward);
+	float local[16] = {
+		side.x, new_up.x, -forward.x, 0.0f,
+		side.y, new_up.y, -forward.y, 0.0f,
+		side.z, new_up.z, -forward.z, 0.0f,
+		-dot(side, eye), -dot(new_up, eye), dot(forward, eye), 1.0f
+	};
 
+	const float fovy = 55.0f;
+	const float aspect = (float)w / h;
+	const float _near = 0.1;
+	const float _far = 1000.0f;
+	const float pi = 3.141592653589793f;
+	const float t = tanf(fovy * pi / 180.0f * 0.5);
+	float persp[16] = {
+		1.0f / (t * aspect), 0.0f, 0.0f, 0.0f,
+		0.0f, 1.0f / t, 0.0f, 0.0f,
+		0.0f, 0.0f, -(_far + _near) / (_far - _near), -1.0f,
+		0.0f, 0.0f, -(2.0f * _far * _near) / (_far - _near), 0.0f
+	};
+
+	const float *a = persp;
+	const float *b = local;
+	float mvp[16] = {
+		b[0] * a[0] + b[1] * a[4] + b[2] * a[8] + b[3] * a[12],
+		b[0] * a[1] + b[1] * a[5] + b[2] * a[9] + b[3] * a[13],
+		b[0] * a[2] + b[1] * a[6] + b[2] * a[10] + b[3] * a[14],
+		b[0] * a[3] + b[1] * a[7] + b[2] * a[11] + b[3] * a[15],
+		b[4] * a[0] + b[5] * a[4] + b[6] * a[8] + b[7] * a[12],
+		b[4] * a[1] + b[5] * a[5] + b[6] * a[9] + b[7] * a[13],
+		b[4] * a[2] + b[5] * a[6] + b[6] * a[10] + b[7] * a[14],
+		b[4] * a[3] + b[5] * a[7] + b[6] * a[11] + b[7] * a[15],
+		b[8] * a[0] + b[9] * a[4] + b[10] * a[8] + b[11] * a[12],
+		b[8] * a[1] + b[9] * a[5] + b[10] * a[9] + b[11] * a[13],
+		b[8] * a[2] + b[9] * a[6] + b[10] * a[10] + b[11] * a[14],
+		b[8] * a[3] + b[9] * a[7] + b[10] * a[11] + b[11] * a[15],
+		b[12] * a[0] + b[13] * a[4] + b[14] * a[8] + b[15] * a[12],
+		b[12] * a[1] + b[13] * a[5] + b[14] * a[9] + b[15] * a[13],
+		b[12] * a[2] + b[13] * a[6] + b[14] * a[10] + b[15] * a[14],
+		b[12] * a[3] + b[13] * a[7] + b[14] * a[11] + b[15] * a[15]
+	};
+	tfx_set_uniform(&screen_from_local, mvp, 1);
+	tfx_set_uniform(&world_from_local, local, 1);
+	for (auto &model : g_models) {
+		for (auto &chunk : model.chunks) {
+			for (auto &buf : model.buffers) {
+				tfx_set_buffer(&buf.second, buf.first, false);
+			}
+			tfx_set_state(TFX_STATE_DEFAULT);
+			//tfx_set_indices(&model.ibo, chunk.num_indices, chunk.offset);
+			tfx_set_indices(&model.ibo, model.total_indices, 0);
+			tfx_submit(1, shaded, false);
+			break;
+		}
+	}
 	tfx_frame();
 
 	// i don't think any os even supports mismatched x/y dpi scaling,
@@ -295,6 +380,49 @@ int main(int argc, char **argv) {
 	tfx_set_platform_data(pd);
 
 	tfx_reset(w, h, TFX_RESET_MAX_ANISOTROPY);
+
+	for (int i = 1; i < argc; i++) {
+		MeshData md;
+		if (iqm_read_data(&md, argv[i])) {
+			Model model;
+			for (auto &l : md.layers) {
+				if (l.data.size() == 0) {
+					continue;
+				}
+				int slot = -1;
+				switch (l.component) {
+					case MC_POSITION: slot = 0; break;
+					case MC_TEXCOORD: slot = 1; break;
+					case MC_NORMAL: slot = 2; break;
+					case MC_COLOR: slot = 3;  break;
+					case MC_TANGENT: break;
+					case MC_BONE: break;
+					case MC_WEIGHT: break;
+					case MC_NONE: break;
+					default: assert(false);
+				}
+				if (slot >= 0) {
+					model.buffers[slot] = tfx_buffer_new(
+						l.data.data(),
+						l.bytes,
+						NULL,
+						TFX_BUFFER_NONE
+					);
+				}
+			}
+			model.ibo = tfx_buffer_new(
+				md.indices.data(),
+				md.indices_bytes,
+				NULL,
+				TFX_BUFFER_INDEX_32
+			);
+			model.total_indices = md.indices.size();
+			for (const auto &chunk : md.chunks) {
+				model.chunks.push_back(chunk);
+			}
+			g_models.push_back(model);
+		}
+	}
 
 	gl3wInit2(glfwGetProcAddress);
 	auto vg = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);

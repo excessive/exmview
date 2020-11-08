@@ -1,5 +1,7 @@
 ﻿cmake_minimum_required (VERSION 3.8)
 
+project(exmview)
+
 if (WIN32)
 	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup")
 endif()
