@@ -8,6 +8,8 @@
 #include <string>
 #include <algorithm>
 #include <vector>
+#define _USE_MATH_DEFINES
+#include <math.h>
 #include <unordered_map>
 
 #include "widgets.hpp"
@@ -27,6 +29,33 @@
 // used by widgets
 bool g_focus = true;
 
+static int last_w = -1;
+static int last_h = -1;
+
+static bool loaded = false;
+static tfx_program flat_textured, shaded, post, sky;
+static tfx_uniform albedo, world_from_local, screen_from_local, light, color, color_mixes;
+static tfx_texture bg_gradient;
+static tfx_canvas back;
+
+struct Model {
+	unsigned total_indices;
+	std::unordered_map<int, tfx_buffer> buffers;
+	std::vector<MeshChunk> chunks;
+	tfx_buffer ibo;
+};
+static std::vector<Model> g_models;
+struct v3 { float x, y, z; };
+
+static bool spinning = false;
+static float pitch = M_PI_4 * -0.25f;
+static float yaw = M_PI_2;
+
+static v3 view_pos = { 0.0f, -5.0f, 1.7f };
+static v3 view_dir = { 0.0f, 0.0f, 0.0f };
+
+#include "shaders.hpp"
+
 static void reshape_ui() {
 	// this section does not have to be regenerated on frame; a good
 	// policy is to invalidate it on events, as this usually alters
@@ -45,9 +74,6 @@ static void reshape_ui() {
 	// layout UI
 	uiEndLayout();
 }
-
-static int last_w = -1;
-static int last_h = -1;
 
 static void draw_widgets(NVGcontext *vg, int item, bool _first, bool _last) {
 	// retrieve custom data and cast it to Data; we assume the first member
@@ -106,14 +132,6 @@ tfx_transient_buffer draw_quad(float x, float y, float w, float h, float z = 0.0
 	return tb;
 }
 
-static bool loaded = false;
-static tfx_program flat_textured, shaded, post, sky;
-static tfx_uniform albedo, world_from_local, screen_from_local, light, color;
-static tfx_texture bg_gradient;
-static tfx_canvas back;
-
-#include "shaders.hpp"
-
 static std::string decash(std::string input) {
 	std::string output(input);
 	std::replace(output.begin(), output.end(), '$', '#');
@@ -144,15 +162,6 @@ static unsigned swap32(unsigned v) {
 	;
 }
 
-struct Model {
-	unsigned total_indices;
-	std::unordered_map<int, tfx_buffer> buffers;
-	std::vector<MeshChunk> chunks;
-	tfx_buffer ibo;
-};
-static std::vector<Model> g_models;
-struct v3 { float x, y, z; };
-
 tfx_transient_buffer screen_triangle(float depth = 1.0f) {
 	tfx_vertex_format fmt = tfx_vertex_format_start();
 	tfx_vertex_format_add(&fmt, 0, 3, false, TFX_TYPE_FLOAT);
@@ -166,12 +175,11 @@ tfx_transient_buffer screen_triangle(float depth = 1.0f) {
 	return tb;
 }
 
-static bool spinning = false;
-static float pitch = 0.0;
-static float yaw = 0.0;
-
-static v3 view_pos = { 0.0f, -5.0f, 1.7f };
-static v3 view_dir = { 0.0f, 1.0f, 0.0f };
+static void update_dir() {
+	view_dir.x = cosf(yaw);
+	view_dir.y = sinf(yaw);
+	view_dir.z = sinf(pitch);
+}
 
 static void gui_redraw(NVGcontext *vg) {
 	if (!loaded) {
@@ -199,6 +207,7 @@ static void gui_redraw(NVGcontext *vg) {
 		// world_from_screen = tfx_uniform_new("u_world_from_screen", TFX_UNIFORM_MAT4, 1);
 		light = tfx_uniform_new("u_light", TFX_UNIFORM_VEC4, 1);
 		color = tfx_uniform_new("u_color", TFX_UNIFORM_VEC4, 1);
+		color_mixes = tfx_uniform_new("u_color_mixes", TFX_UNIFORM_VEC4, 1);
 		loaded = true;
 	}
 
@@ -233,6 +242,18 @@ static void gui_redraw(NVGcontext *vg) {
 	float flight[4] = { 1.0f, -1.0f, 1.0f, 1.0f };
 	tfx_set_uniform(&light, flight, 1);
 
+	float show_materials = 0.5f;
+	float highlight_backfaces = 1.0f;
+	float show_uv = 0.5f;
+	float show_vcols = 1.0f;
+	float colmix[4] = {
+		show_materials,
+		highlight_backfaces,
+		show_uv,
+		show_vcols
+	};
+	tfx_set_uniform(&color_mixes, colmix, 1);
+
 	tfx_view_set_clear_color(0, 0xAA607FFF);
 	tfx_view_set_clear_depth(0, 1.0);
 	tfx_view_set_depth_test(0, TFX_DEPTH_TEST_LT);
@@ -266,9 +287,7 @@ static void gui_redraw(NVGcontext *vg) {
 	tfx_set_state(TFX_STATE_RGB_WRITE | TFX_STATE_CULL_CCW);
 	tfx_submit(0, flat_textured, false);
 
-	view_dir.x = cosf(yaw);
-	view_dir.y = sinf(yaw);
-	view_dir.z = sinf(pitch);
+	update_dir();
 
 	const v3 eye = { view_pos.x, view_pos.y, view_pos.z };
 	const v3 at = { eye.x + view_dir.x, eye.y + view_dir.y, eye.z + view_dir.z };
@@ -441,10 +460,11 @@ int main(int argc, char **argv) {
 	tfx_set_platform_data(pd);
 
 	tfx_reset(w, h, TFX_RESET_MAX_ANISOTROPY);
+	update_dir();
 
 	for (int i = 1; i < argc; i++) {
 		MeshData md;
-		if (iqm_read_data(&md, argv[i])) {
+		if (iqm_read_data(&md, argv[i], true)) {
 			Model model;
 			for (auto &l : md.layers) {
 				if (l.data.size() == 0) {
@@ -525,10 +545,7 @@ int main(int argc, char **argv) {
 		}
 	});
 	glfwSetScrollCallback(hwnd, [](GLFWwindow *, double x, double y) {
-		view_dir.x = cosf(yaw);
-		view_dir.y = sinf(yaw);
-		view_dir.z = sinf(pitch);
-
+		update_dir();
 		view_pos.x += view_dir.x * y;
 		view_pos.y += view_dir.y * y;
 		view_pos.z += view_dir.z * y;
@@ -544,7 +561,7 @@ int main(int argc, char **argv) {
 			yaw += (lx - x) / div;
 			pitch += (ly - y) / div;
 			// yaw = fmodf(yaw, M_PI * 2.0f);
-			pitch = fmaxf(fminf(pitch, M_PI_2f32), -M_PI_2f32);
+			pitch = fmaxf(fminf(pitch, M_PI_2), -M_PI_2);
 		}
 		lx = x;
 		ly = y;

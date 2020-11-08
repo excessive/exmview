@@ -49,4 +49,4 @@ struct MeshData {
 	size_t indices_bytes;
 };
 
-bool iqm_read_data(MeshData *md, const std::string &filename);
+bool iqm_read_data(MeshData *md, const std::string &filename, bool fill_colors);

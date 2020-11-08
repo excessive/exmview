@@ -1,14 +1,9 @@
 R"(
 $if VERTEX
-//layout(location=0) in vec3 v_position;
-//layout(location=1) in vec2 v_coords;
-//layout(location=2) in vec3 v_normal;
-//layout(location=3) in vec4 v_color;
-
 layout(std430, binding = 0) readonly buffer InPosition { float in_position[]; };
 layout(std430, binding = 1) readonly buffer InCoords { float in_coord[]; };
 layout(std430, binding = 2) readonly buffer InNormals { float in_normal[]; };
-layout(std430, binding = 3) readonly buffer InColors { float in_color[]; };
+layout(std430, binding = 3) readonly buffer InColors { uint in_color[]; };
 
 out vec2 f_coords;
 out vec3 f_normal;
@@ -45,11 +40,22 @@ vec3 read_normal() {
 	);
 }
 
+vec4 read_color() {
+	uint color = in_color[gl_VertexID];
+	return vec4(
+		// explicit cast to int for gles
+		float(int(color >>  0) & 255) / 255.0,
+		float(int(color >>  8) & 255) / 255.0,
+		float(int(color >> 16) & 255) / 255.0,
+		float(int(color >> 24) & 255) / 255.0
+	);
+}
+
 void main() {
 	vec3 v_position = read_pos();
 	vec2 v_coords = read_uv();
 	vec3 v_normal = read_normal();
-	vec4 v_color = vec4(1.0);
+	vec4 v_color = pow(read_color(), vec4(vec3(2.2), 1.0));
 
 	vec3 view_dir_vs = -(u_world_from_local * vec4(v_position, 1.0)).xyz;
 	view_dir_ws = transpose(mat3(u_world_from_local)) * -view_dir_vs;
@@ -73,6 +79,11 @@ out vec4 fs_out;
 uniform vec4 u_light;
 
 uniform vec4 u_color;
+uniform vec4 u_color_mixes;
+#define u_material_mix (u_color_mixes.x)
+#define u_backface_mix (u_color_mixes.y)
+#define u_uv_mix (u_color_mixes.z)
+#define u_vcol_mix (u_color_mixes.w)
 
 float square(float s) { return s * s; }
 
@@ -130,14 +141,29 @@ void main() {
 	float ndl = dot(n, l);
 	float ndi = max(0.0, dot(n, -i_ws));
 	vec3 refl = sky_approx(i_ws, l) * max(0.05, 1.0-ndi) * exp2(-2.0);
-	vec4 col = f_color * 0.5;
-	fs_out = col * exp2(2.0) * pow(max(abs(-1.0-ndl)*0.025+0.025, ndl), 0.454545);// * texture(s_albedo, f_coords) * f_color;
-	fs_out.rgb = mix(fs_out.rgb, hueGradient(u_color.a), 0.25);
-	fs_out += vec4(refl, 1.0);
-	if (!gl_FrontFacing) {
-		fs_out = vec4(5.0, 0.0, 0.0, 1.0);
+	float shade = pow(max(abs(-1.0-ndl)*0.025+0.025, ndl), 0.454545) * exp2(0.5);
+	fs_out.a = 1.0;
+
+	// vcols
+	fs_out.rgb = mix(vec3(1.0), f_color.rgb, u_vcol_mix) * shade;
+
+	// uv debug
+	float coord_range = 1.0;
+	vec2 range = vec2(0.0, 1.0);
+	if (any(lessThan(f_coords, range.xx)) || any(greaterThan(f_coords, range.yy))) {
+		coord_range = 0.0;
 	}
-	fs_out.a = 1.0; // ???
+	fs_out.rgb = mix(fs_out.rgb, vec3(mod(f_coords + 0.0001 /* slight bias to avoid artifacts */, vec2(1.0)), coord_range), u_uv_mix);
+
+	// material display
+	fs_out.rgb = mix(fs_out.rgb, hueGradient(u_color.a), u_material_mix);
+
+	fs_out.rgb += refl;
+
+	// backface highlight (mixed last, for clarity)
+	if (!gl_FrontFacing) {
+		fs_out.rgb = mix(fs_out.rgb, vec3(5.0, 0.0, 0.0), u_backface_mix);
+	}
 	fs_out.rgb *= fs_out.a;
 }
 $endif

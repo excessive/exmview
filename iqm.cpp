@@ -164,6 +164,8 @@ static void read_iqm_chunks(const std::vector<uint8_t> &data, const iqmheader *h
 	}
 }
 
+#include <Windows.h>
+
 namespace fs {
 bool read_vector(std::vector<uint8_t> &data, const std::string &filename) {
 	FILE *handle = fopen(filename.c_str(), "rb");
@@ -186,7 +188,7 @@ bool read_vector(std::vector<uint8_t> &data, const std::string &filename) {
 }
 }
 
-bool iqm_read_data(MeshData *md, const std::string &filename) {
+bool iqm_read_data(MeshData *md, const std::string &filename, bool fill_colors) {
 	std::vector<uint8_t> data;
 	if (fs::read_vector(data, filename)) {
 		printf("[IQM] Reading file %s...\n", filename.c_str());
@@ -205,6 +207,7 @@ bool iqm_read_data(MeshData *md, const std::string &filename) {
 	iqmheader *header = (iqmheader *)& data[0];
 	iqmvertexarray *vas = (iqmvertexarray *)& data[header->ofs_vertexarrays];
 	size_t vsize = 0;
+	bool found_colors = false;
 	for (unsigned int i = 0; i < header->num_vertexarrays; i++) {
 		iqmvertexarray va = vas[i];
 		MeshLayer layer;
@@ -233,18 +236,36 @@ bool iqm_read_data(MeshData *md, const std::string &filename) {
 			layer.count = 1;
 			layer.data.reserve(header->num_vertexes);
 			unsigned *uvdata = (unsigned*)& data[va.offset];
-			for (size_t i = 0; i < layer.data.size(); i++) {
+			for (size_t i = 0; i < layer.data.capacity(); i++) {
 				Rights data;
 				data.u = uvdata[i];
 				layer.data.push_back(data);
 			}
 			layer.bytes = layer.data.size() * sizeof(unsigned);
+			if (va.type == IQM_COLOR) {
+				found_colors = true;
+			}
 		}
 		else {
 			continue;
 		}
 		md->layers.push_back(layer);
 		md->mask |= layer.component;
+	}
+
+	if (!found_colors && fill_colors) {
+		//OutputDebugStringA("injecterating\n");
+		MeshLayer layer;
+		layer.component = MC_COLOR;
+		layer.should_normalize = should_normalize(IQM_COLOR);
+		layer.data.reserve(header->num_vertexes);
+		for (unsigned i = 0; i < header->num_vertexes; i++) {
+			Rights data;
+			data.u = 0xffffffff;
+			layer.data.push_back(data);
+		}
+		layer.bytes = layer.data.size() * sizeof(unsigned);
+		md->layers.push_back(layer);
 	}
 
 	// Read the triangle list into an index buffer, convert if needed.

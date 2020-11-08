@@ -116,7 +116,7 @@ vec3 tonemap_aces(vec3 x) {
 
 void main() {
 	fs_out = texture(s_albedo, f_coords);
-	fs_out.rgb *= exp2(-1.25);
+	//fs_out.rgb *= exp2(-1.25);
 	fs_out.rgb = tonemap_aces(fs_out.rgb) / tonemap_aces(vec3(1000.0));
 	fs_out.rgb += dither8x8(gl_FragCoord.xy, fs_out.rgb) * 8.0 / 255.0;
 	fs_out.rgb *= fs_out.a;
