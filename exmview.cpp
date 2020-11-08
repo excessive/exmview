@@ -107,7 +107,7 @@ tfx_transient_buffer draw_quad(float x, float y, float w, float h, float z = 0.0
 }
 
 static bool loaded = false;
-static tfx_program flat_textured, shaded, post;
+static tfx_program flat_textured, shaded, post, sky;
 static tfx_uniform albedo, world_from_local, screen_from_local, light, color;
 static tfx_texture bg_gradient;
 static tfx_canvas back;
@@ -151,6 +151,7 @@ struct Model {
 	tfx_buffer ibo;
 };
 static std::vector<Model> g_models;
+struct v3 { float x, y, z; };
 
 tfx_transient_buffer screen_triangle(float depth = 1.0f) {
 	tfx_vertex_format fmt = tfx_vertex_format_start();
@@ -158,7 +159,6 @@ tfx_transient_buffer screen_triangle(float depth = 1.0f) {
 	tfx_vertex_format_end(&fmt);
 
 	tfx_transient_buffer tb = tfx_transient_buffer_new(&fmt, 3);
-	struct v3 { float x, y, z; };
 	v3 *vdata = (v3*)tb.data;
 	vdata[0] = { -1.0f, 3.0f, depth };
 	vdata[1] = { -1.0f, -1.0f, depth };
@@ -166,11 +166,19 @@ tfx_transient_buffer screen_triangle(float depth = 1.0f) {
 	return tb;
 }
 
+static bool spinning = false;
+static float pitch = 0.0;
+static float yaw = 0.0;
+
+static v3 view_pos = { 0.0f, -5.0f, 1.7f };
+static v3 view_dir = { 0.0f, 1.0f, 0.0f };
+
 static void gui_redraw(NVGcontext *vg) {
 	if (!loaded) {
 		flat_textured = load(SHADER_GRADIENT);
 		shaded = load(SHADER_SHADED);
 		post = load(SHADER_POST);
+		sky = load(SHADER_SKY);
 		assert(shaded);
 		uint32_t bg_pixels9[] = {
 			swap32(0x5F1F3FFF), swap32(0x5F1F3FFF), swap32(0x5F1F3FFF),
@@ -188,6 +196,7 @@ static void gui_redraw(NVGcontext *vg) {
 		albedo = tfx_uniform_new("s_albedo", TFX_UNIFORM_INT, 1);
 		screen_from_local = tfx_uniform_new("u_screen_from_local", TFX_UNIFORM_MAT4, 1);
 		world_from_local = tfx_uniform_new("u_world_from_local", TFX_UNIFORM_MAT4, 1);
+		// world_from_screen = tfx_uniform_new("u_world_from_screen", TFX_UNIFORM_MAT4, 1);
 		light = tfx_uniform_new("u_light", TFX_UNIFORM_VEC4, 1);
 		color = tfx_uniform_new("u_color", TFX_UNIFORM_VEC4, 1);
 		loaded = true;
@@ -220,6 +229,9 @@ static void gui_redraw(NVGcontext *vg) {
 		};
 		back = tfx_canvas_attachments_new(true, 2, attachments);
 	}
+
+	float flight[4] = { 1.0f, -1.0f, 1.0f, 1.0f };
+	tfx_set_uniform(&light, flight, 1);
 
 	tfx_view_set_clear_color(0, 0xAA607FFF);
 	tfx_view_set_clear_depth(0, 1.0);
@@ -254,9 +266,12 @@ static void gui_redraw(NVGcontext *vg) {
 	tfx_set_state(TFX_STATE_RGB_WRITE | TFX_STATE_CULL_CCW);
 	tfx_submit(0, flat_textured, false);
 
-	struct v3 { float x, y, z; };
-	const v3 at = { 0.0f, 0.0f, 0.0f };
-	const v3 eye = { 0.0f, -5.0f, 1.7f };
+	view_dir.x = cosf(yaw);
+	view_dir.y = sinf(yaw);
+	view_dir.z = sinf(pitch);
+
+	const v3 eye = { view_pos.x, view_pos.y, view_pos.z };
+	const v3 at = { eye.x + view_dir.x, eye.y + view_dir.y, eye.z + view_dir.z };
 	const v3 up = { 0.0f, 0.0f, 1.0f };
 	const auto dot = [](v3 a, v3 b) {
 		return a.x * b.x + a.y * b.y + a.z * b.z;
@@ -317,18 +332,28 @@ static void gui_redraw(NVGcontext *vg) {
 	};
 	tfx_set_uniform(&screen_from_local, mvp, 1);
 	tfx_set_uniform(&world_from_local, local, 1);
+
+	tfx_set_transient_buffer(screen_triangle(1.0f));
+	tfx_set_state(TFX_STATE_RGB_WRITE | TFX_STATE_CULL_CCW | TFX_STATE_BLEND_ALPHA);
+	tfx_submit(0, sky, false);
+
+	float i = 0.0f;
 	for (auto &model : g_models) {
-		int i = 0;
 		for (auto &chunk : model.chunks) {
 			for (auto &buf : model.buffers) {
 				tfx_set_buffer(&buf.second, buf.first, false);
 			}
-			float fcolor[4] = { 1.0f, 1.0f, 1.0f, (float)i / model.chunks.size() };
+			float fcolor[4] = { 1.0f, 1.0f, 1.0f, fmodf(i / model.chunks.size(), 1.0f) };
 			tfx_set_uniform(&color, fcolor, 1);
-			tfx_set_state(TFX_STATE_DEFAULT);
+			tfx_set_state(0
+				| TFX_STATE_RGB_WRITE
+				| TFX_STATE_DEPTH_WRITE
+				| TFX_STATE_BLEND_ALPHA
+				| TFX_STATE_MSAA
+			);
 			tfx_set_indices(&model.ibo, chunk.num_indices, chunk.offset * 4);
 			tfx_submit(1, shaded, false);
-			i++;
+			i += 1.0f;
 		}
 	}
 	tfx_frame();
@@ -486,6 +511,43 @@ int main(int argc, char **argv) {
 
 	glfwSetWindowFocusCallback(hwnd, [](GLFWwindow *, int focus) {
 		g_focus = focus == GLFW_TRUE;
+	});
+
+	glfwSetMouseButtonCallback(hwnd, [](GLFWwindow *wnd, int button, int action, int mods) {
+		if (button == 0) {
+			spinning = (action == GLFW_PRESS);
+		}
+		if (spinning) {
+			glfwSetInputMode(wnd, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+		}
+		else {
+			glfwSetInputMode(wnd, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+		}
+	});
+	glfwSetScrollCallback(hwnd, [](GLFWwindow *, double x, double y) {
+		view_dir.x = cosf(yaw);
+		view_dir.y = sinf(yaw);
+		view_dir.z = sinf(pitch);
+
+		view_pos.x += view_dir.x * y;
+		view_pos.y += view_dir.y * y;
+		view_pos.z += view_dir.z * y;
+	});
+	if (glfwRawMouseMotionSupported()) {
+		glfwSetInputMode(hwnd, GLFW_RAW_MOUSE_MOTION, 1);
+	}
+	glfwSetCursorPosCallback(hwnd, [](GLFWwindow *, double x, double y) {
+		double div = 250.0;
+		static double lx = x;
+		static double ly = y;
+		if (spinning) {
+			yaw += (lx - x) / div;
+			pitch += (ly - y) / div;
+			// yaw = fmodf(yaw, M_PI * 2.0f);
+			pitch = fmaxf(fminf(pitch, M_PI_2f32), -M_PI_2f32);
+		}
+		lx = x;
+		ly = y;
 	});
 
 	while (!glfwWindowShouldClose(hwnd)) {
