@@ -123,7 +123,7 @@ vec3 sky_approx(vec3 i_ws, vec3 sun_ws) {
 		vec3(3.0 * sun_ws.z) * vec3(0.3, 0.6, 1.0),
 		smoothstep(0.25, -0.1, i_ws.z)
 	);
-	return final;// * 3.3635856610149; //exp2(1.75);
+	return final;
 }
 
 float schlick_ior_fresnel(float ior, float ldh) {
@@ -140,8 +140,8 @@ void main() {
 	vec3 i_ws = normalize(view_dir_ws);
 	float ndl = dot(n, l);
 	float ndi = max(0.0, dot(n, -i_ws));
-	vec3 refl = sky_approx(i_ws, l) * max(0.05, 1.0-ndi) * exp2(-2.0);
-	float shade = pow(max(abs(-1.0-ndl)*0.025+0.025, ndl), 0.454545) * exp2(0.5);
+	vec3 refl = sky_approx(i_ws, l) * mix(0.05, schlick_ior_fresnel(1.45, ndi), 0.9) * exp2(-2.0);
+	float shade = pow(max(abs(-1.0-ndl)*0.05+0.05, ndl), 0.454545) * exp2(1.0);
 	fs_out.a = 1.0;
 
 	// vcols

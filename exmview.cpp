@@ -239,14 +239,15 @@ static void gui_redraw(NVGcontext *vg) {
 		back = tfx_canvas_attachments_new(true, 2, attachments);
 	}
 
-	float flight[4] = { 1.0f, -1.0f, 1.0f, 1.0f };
+	const float flight[4] = { 1.0f, -1.0f, 1.0f, 1.0f };
 	tfx_set_uniform(&light, flight, 1);
 
-	float show_materials = 0.5f;
-	float highlight_backfaces = 1.0f;
-	float show_uv = 0.5f;
-	float show_vcols = 1.0f;
-	float colmix[4] = {
+	const bool wireframe = false;
+	const float show_materials = 0.0f;
+	const float highlight_backfaces = 1.0f;
+	const float show_uv = 0.0f;
+	const float show_vcols = 1.0f;
+	const float colmix[4] = {
 		show_materials,
 		highlight_backfaces,
 		show_uv,
@@ -274,7 +275,7 @@ static void gui_redraw(NVGcontext *vg) {
 	tfx_submit(2, post, false);
 
 	//float aspect = fmaxf((float)w / h, (float)h / w);
-	float proj[16] = {
+	const float proj[16] = {
 		2.0f / w, 0.0f, 0.0f, 0.0f,
 		0.0f, -2.0f / h, 0.0f, 0.0f,
 		0.0f, 0.0f, 1.0f, 0.0f,
@@ -309,7 +310,7 @@ static void gui_redraw(NVGcontext *vg) {
 	const v3 forward = normalize(v3 { at.x - eye.x, at.y - eye.y, at.z - eye.z });
 	const v3 side = normalize(cross(forward, up));
 	const v3 new_up = cross(side, forward);
-	float local[16] = {
+	const float local[16] = {
 		side.x, new_up.x, -forward.x, 0.0f,
 		side.y, new_up.y, -forward.y, 0.0f,
 		side.z, new_up.z, -forward.z, 0.0f,
@@ -322,7 +323,7 @@ static void gui_redraw(NVGcontext *vg) {
 	const float _far = 1000.0f;
 	const float pi = 3.141592653589793f;
 	const float t = tanf(fovy * pi / 180.0f * 0.5);
-	float persp[16] = {
+	const float persp[16] = {
 		1.0f / (t * aspect), 0.0f, 0.0f, 0.0f,
 		0.0f, 1.0f / t, 0.0f, 0.0f,
 		0.0f, 0.0f, -(_far + _near) / (_far - _near), -1.0f,
@@ -331,7 +332,7 @@ static void gui_redraw(NVGcontext *vg) {
 
 	const float *a = persp;
 	const float *b = local;
-	float mvp[16] = {
+	const float mvp[16] = {
 		b[0] * a[0] + b[1] * a[4] + b[2] * a[8] + b[3] * a[12],
 		b[0] * a[1] + b[1] * a[5] + b[2] * a[9] + b[3] * a[13],
 		b[0] * a[2] + b[1] * a[6] + b[2] * a[10] + b[3] * a[14],
@@ -369,6 +370,7 @@ static void gui_redraw(NVGcontext *vg) {
 				| TFX_STATE_DEPTH_WRITE
 				| TFX_STATE_BLEND_ALPHA
 				| TFX_STATE_MSAA
+				| (wireframe ? TFX_STATE_WIREFRAME : 0)
 			);
 			tfx_set_indices(&model.ibo, chunk.num_indices, chunk.offset * 4);
 			tfx_submit(1, shaded, false);
