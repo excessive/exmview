@@ -9,7 +9,8 @@ struct BuiltInShader {
 
 enum ShaderType {
 	SHADER_GRADIENT,
-	SHADER_SHADED
+	SHADER_SHADED,
+	SHADER_POST
 };
 
 static const char *gradient_attribs[] = { "v_position", "v_coords", NULL };
@@ -22,8 +23,14 @@ static const char *shaded_src =
 #include "shaders/shaded.glsl"
 ;
 
+static const char *post_attribs[] = { "v_position", NULL };
+static const char *post_src =
+#include "shaders/post.glsl"
+;
+
 static const BuiltInShader shaders[] = {
 	{ gradient_src, gradient_attribs, NULL, false },
 	{ shaded_src, shaded_attribs, NULL, false },
+	{ post_src, post_attribs, NULL, false },
 	NULL
 };

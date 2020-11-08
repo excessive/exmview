@@ -37,7 +37,8 @@ static void reshape_ui() {
 
 	int w, h;
 	glfwGetFramebufferSize(glfwGetCurrentContext(), &w, &h);
-	tfx_reset(w, h, (tfx_reset_flags)(TFX_RESET_MAX_ANISOTROPY | TFX_RESET_REPORT_GPU_TIMINGS | TFX_RESET_DEBUG_OVERLAY | TFX_RESET_DEBUG_OVERLAY_STATS));
+	tfx_reset(w, h, (tfx_reset_flags)(TFX_RESET_MAX_ANISOTROPY));
+	// | TFX_RESET_REPORT_GPU_TIMINGS | TFX_RESET_DEBUG_OVERLAY | TFX_RESET_DEBUG_OVERLAY_STATS));
 	// - UI setup code goes here -
 	gui_layout(w, h);
 
@@ -106,9 +107,10 @@ tfx_transient_buffer draw_quad(float x, float y, float w, float h, float z = 0.0
 }
 
 static bool loaded = false;
-static tfx_program flat_textured, shaded;
-static tfx_uniform albedo, world_from_local, screen_from_local, light;
+static tfx_program flat_textured, shaded, post;
+static tfx_uniform albedo, world_from_local, screen_from_local, light, color;
 static tfx_texture bg_gradient;
+static tfx_canvas back;
 
 #include "shaders.hpp"
 
@@ -150,10 +152,25 @@ struct Model {
 };
 static std::vector<Model> g_models;
 
+tfx_transient_buffer screen_triangle(float depth = 1.0f) {
+	tfx_vertex_format fmt = tfx_vertex_format_start();
+	tfx_vertex_format_add(&fmt, 0, 3, false, TFX_TYPE_FLOAT);
+	tfx_vertex_format_end(&fmt);
+
+	tfx_transient_buffer tb = tfx_transient_buffer_new(&fmt, 3);
+	struct v3 { float x, y, z; };
+	v3 *vdata = (v3*)tb.data;
+	vdata[0] = { -1.0f, 3.0f, depth };
+	vdata[1] = { -1.0f, -1.0f, depth };
+	vdata[2] = { 3.0f, -1.0f, depth };
+	return tb;
+}
+
 static void gui_redraw(NVGcontext *vg) {
 	if (!loaded) {
 		flat_textured = load(SHADER_GRADIENT);
 		shaded = load(SHADER_SHADED);
+		post = load(SHADER_POST);
 		assert(shaded);
 		uint32_t bg_pixels9[] = {
 			swap32(0x5F1F3FFF), swap32(0x5F1F3FFF), swap32(0x5F1F3FFF),
@@ -172,6 +189,7 @@ static void gui_redraw(NVGcontext *vg) {
 		screen_from_local = tfx_uniform_new("u_screen_from_local", TFX_UNIFORM_MAT4, 1);
 		world_from_local = tfx_uniform_new("u_world_from_local", TFX_UNIFORM_MAT4, 1);
 		light = tfx_uniform_new("u_light", TFX_UNIFORM_VEC4, 1);
+		color = tfx_uniform_new("u_color", TFX_UNIFORM_VEC4, 1);
 		loaded = true;
 	}
 
@@ -194,17 +212,33 @@ static void gui_redraw(NVGcontext *vg) {
 		reshape_ui();
 		last_w = w;
 		last_h = h;
+
+		tfx_canvas_free(&back);
+		tfx_texture attachments[2] = {
+			tfx_texture_new(w, h, 1, NULL, TFX_FORMAT_RGBA16F, TFX_TEXTURE_MSAA_X4),
+			tfx_texture_new(w, h, 1, NULL, TFX_FORMAT_D24, TFX_TEXTURE_MSAA_X4)
+		};
+		back = tfx_canvas_attachments_new(true, 2, attachments);
 	}
 
 	tfx_view_set_clear_color(0, 0xAA607FFF);
 	tfx_view_set_clear_depth(0, 1.0);
 	tfx_view_set_depth_test(0, TFX_DEPTH_TEST_LT);
 	tfx_view_set_name(0, "Background");
+	tfx_view_set_canvas(0, &back, 0);
 	tfx_touch(0);
 
 	tfx_view_set_depth_test(1, TFX_DEPTH_TEST_LT);
 	tfx_view_set_name(1, "Main");
+	tfx_view_set_canvas(1, &back, 0);
 	tfx_touch(1);
+
+	tfx_view_set_name(2, "Resolve");
+	tfx_set_transient_buffer(screen_triangle(1.0f));
+	tfx_set_state(TFX_STATE_RGB_WRITE | TFX_STATE_CULL_CCW);
+	tfx_texture tex = tfx_get_texture(&back, 0);
+	tfx_set_texture(&albedo, &tex, 0);
+	tfx_submit(2, post, false);
 
 	//float aspect = fmaxf((float)w / h, (float)h / w);
 	float proj[16] = {
@@ -221,9 +255,9 @@ static void gui_redraw(NVGcontext *vg) {
 	tfx_submit(0, flat_textured, false);
 
 	struct v3 { float x, y, z; };
-	v3 at = { 0.0f, 0.0f, 0.0f };
-	v3 eye = { 0.0f, -5.0f, 1.7f };
-	v3 up = { 0.0f, 0.0f, 1.0f };
+	const v3 at = { 0.0f, 0.0f, 0.0f };
+	const v3 eye = { 0.0f, -5.0f, 1.7f };
+	const v3 up = { 0.0f, 0.0f, 1.0f };
 	const auto dot = [](v3 a, v3 b) {
 		return a.x * b.x + a.y * b.y + a.z * b.z;
 	};
@@ -238,9 +272,9 @@ static void gui_redraw(NVGcontext *vg) {
 			a.x * b.y - a.y * b.x
 		};
 	};
-	v3 forward = normalize(v3 { at.x - eye.x, at.y - eye.y, at.z - eye.z });
-	v3 side = normalize(cross(forward, up));
-	v3 new_up = cross(side, forward);
+	const v3 forward = normalize(v3 { at.x - eye.x, at.y - eye.y, at.z - eye.z });
+	const v3 side = normalize(cross(forward, up));
+	const v3 new_up = cross(side, forward);
 	float local[16] = {
 		side.x, new_up.x, -forward.x, 0.0f,
 		side.y, new_up.y, -forward.y, 0.0f,
@@ -284,15 +318,17 @@ static void gui_redraw(NVGcontext *vg) {
 	tfx_set_uniform(&screen_from_local, mvp, 1);
 	tfx_set_uniform(&world_from_local, local, 1);
 	for (auto &model : g_models) {
+		int i = 0;
 		for (auto &chunk : model.chunks) {
 			for (auto &buf : model.buffers) {
 				tfx_set_buffer(&buf.second, buf.first, false);
 			}
+			float fcolor[4] = { 1.0f, 1.0f, 1.0f, (float)i / model.chunks.size() };
+			tfx_set_uniform(&color, fcolor, 1);
 			tfx_set_state(TFX_STATE_DEFAULT);
-			//tfx_set_indices(&model.ibo, chunk.num_indices, chunk.offset);
-			tfx_set_indices(&model.ibo, model.total_indices, 0);
+			tfx_set_indices(&model.ibo, chunk.num_indices, chunk.offset * 4);
 			tfx_submit(1, shaded, false);
-			break;
+			i++;
 		}
 	}
 	tfx_frame();

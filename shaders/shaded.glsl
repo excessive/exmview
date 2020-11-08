@@ -16,6 +16,7 @@ out vec4 f_color;
 
 uniform mat4 u_screen_from_local;
 uniform mat4 u_world_from_local;
+uniform vec4 u_color;
 
 vec3 read_pos() {
 	int idx3 = gl_VertexID * 3;
@@ -51,7 +52,7 @@ void main() {
 
 	f_coords = v_coords;
 	f_normal = mat3(u_world_from_local) * v_normal;
-	f_color = v_color;
+	f_color = v_color * vec4(u_color.rgb, 1.0);
 	gl_Position = u_screen_from_local * vec4(v_position.xyz, 1.0);
 }
 $endif
@@ -67,15 +68,32 @@ out vec4 fs_out;
 //uniform vec4 u_light;
 const vec4 u_light = vec4(1.0);
 
+uniform vec4 u_color;
+
+float square(float s) { return s * s; }
+
+vec3 hueGradient(float t) {
+	vec3 p = abs(fract(t + vec3(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
+	return (clamp(p - 1.0, 0.0, 1.0));
+}
+
+vec3 rainbowGradient(float t) {
+	vec3 c = 1.0 - pow(abs(vec3(t) - vec3(0.65, 0.5, 0.2)) * vec3(3.0, 3.0, 5.0), vec3(1.5, 1.3, 1.7));
+	c.r = max((0.15 - square(abs(t - 0.04) * 5.0)), c.r);
+	c.g = (t < 0.5) ? smoothstep(0.04, 0.45, t) : c.g;
+	return clamp(c, 0.0, 1.0);
+}
+
 void main() {
 	vec3 n = normalize(f_normal);
 	vec3 l = normalize(u_light.xyz);
-	fs_out = f_color * u_light.z * max(0.0, dot(n, l));// * texture(s_albedo, f_coords) * f_color;
+	float ndl = dot(n, l);
+	fs_out = f_color * u_light.z * pow(max(abs(ndl)*0.05, ndl), 0.454545);// * texture(s_albedo, f_coords) * f_color;
+	fs_out.rgb *= hueGradient(u_color.a);
 	fs_out.a = 1.0;
 	if (!gl_FrontFacing) {
 		fs_out *= vec4(1.0, 0.25, 0.25, 1.0);
 	}
-	fs_out.rgb = pow(fs_out.rgb, vec3(0.454545));
 	fs_out.rgb *= fs_out.a;
 }
 $endif
