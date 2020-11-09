@@ -25,6 +25,7 @@
 
 #include "tinyfx.h"
 #include "iqm.hpp"
+#include "exmview.hpp"
 
 // used by widgets
 bool g_focus = true;
@@ -37,6 +38,8 @@ static tfx_program flat_textured, shaded, post, sky;
 static tfx_uniform albedo, world_from_local, screen_from_local, light, color, color_mixes;
 static tfx_texture bg_gradient;
 static tfx_canvas back;
+
+State g_state;
 
 struct Model {
 	unsigned total_indices;
@@ -242,11 +245,12 @@ static void gui_redraw(NVGcontext *vg) {
 	const float flight[4] = { 1.0f, -1.0f, 1.0f, 1.0f };
 	tfx_set_uniform(&light, flight, 1);
 
-	const bool wireframe = false;
-	const float show_materials = 0.0f;
-	const float highlight_backfaces = 1.0f;
-	const float show_uv = 0.0f;
-	const float show_vcols = 1.0f;
+	const bool wireframe = g_state.wireframe;
+	const bool culling = !g_state.show_backfaces;
+	const float show_materials = g_state.show_materials;
+	const float highlight_backfaces = g_state.highlight_backfaces;
+	const float show_uv = g_state.show_uv;
+	const float show_vcols = g_state.show_vcols;
 	const float colmix[4] = {
 		show_materials,
 		highlight_backfaces,
@@ -371,6 +375,7 @@ static void gui_redraw(NVGcontext *vg) {
 				| TFX_STATE_BLEND_ALPHA
 				| TFX_STATE_MSAA
 				| (wireframe ? TFX_STATE_WIREFRAME : 0)
+				| (culling ? TFX_STATE_CULL_CCW : 0)
 			);
 			tfx_set_indices(&model.ibo, chunk.num_indices, chunk.offset * 4);
 			tfx_submit(1, shaded, false);

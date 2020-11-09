@@ -164,8 +164,6 @@ static void read_iqm_chunks(const std::vector<uint8_t> &data, const iqmheader *h
 	}
 }
 
-#include <Windows.h>
-
 namespace fs {
 bool read_vector(std::vector<uint8_t> &data, const std::string &filename) {
 	FILE *handle = fopen(filename.c_str(), "rb");
@@ -254,7 +252,6 @@ bool iqm_read_data(MeshData *md, const std::string &filename, bool fill_colors) 
 	}
 
 	if (!found_colors && fill_colors) {
-		//OutputDebugStringA("injecterating\n");
 		MeshLayer layer;
 		layer.component = MC_COLOR;
 		layer.should_normalize = should_normalize(IQM_COLOR);

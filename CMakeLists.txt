@@ -13,6 +13,7 @@ add_executable (exmview WIN32
 	"iqm.cpp"
 	"tinyfx.c"
 	"nanovg/src/nanovg.c"
+	"exmview.hpp"
 )
 
 target_compile_definitions(exmview PRIVATE "FONS_USE_FREETYPE=1")

@@ -218,6 +218,61 @@ static void draw_checkbox(NVGcontext *vg, UIrect rect, CheckBoxData *data, int i
 	nvgTextAlign(vg, NVG_ALIGN_MIDDLE | NVG_ALIGN_LEFT);
 	nvgText(vg, pad, rect.h / 2, data->label, NULL);
 }
+static void draw_checkbox_float(NVGcontext *vg, UIrect rect, CheckBoxFloatData *data, int item) {
+	float pad = 3.0f;
+	float size = rect.h - 5.0f;
+
+	float cx = rect.w - size - pad;
+	float cy = (rect.h - size) * 0.5f;
+
+	auto high = APP_WIDGET_BUTTON_HIGHLIGHT_HIGH;
+	auto low = APP_WIDGET_BUTTON_HIGHLIGHT_LOW;
+
+	if (*data->checked) {
+		auto tmp = high;
+		high = low;
+		low = tmp;
+	}
+
+	BoxShading col;
+	col.bg = APP_WIDGET_BUTTON_BG_INACTIVE;
+	col.high = high;
+	col.low = low;
+	col.grad_start = -10.0f;
+	col.grad_end = 25.0f;
+	shaded_box(vg, cx, cy, size, size, col, NULL);
+
+	if (*data->checked > data->low) {
+		float line_width = 3.0f;
+		float check_size = size - 3.0f;
+		float check_offset = 0.5f * (size - check_size);
+		check_size = check_size - line_width;
+		float cxo = cx + check_offset + line_width * 0.5f;
+		float cyo = cy + check_offset + line_width * 0.5f;
+		nvgBeginPath(vg);
+		nvgStrokeColor(vg, nvgRGB(0, 0xbb, 0x99));
+		nvgStrokeWidth(vg, line_width);
+		nvgLineCap(vg, NVG_ROUND);
+		nvgMoveTo(vg, cxo, cyo);
+		nvgLineTo(vg, cxo + check_size, cyo + check_size);
+		nvgMoveTo(vg, cxo, cyo + check_size);
+		nvgLineTo(vg, cxo + check_size, cyo);
+		nvgStroke(vg);
+	}
+
+	float bounds[4];
+	nvgTextBounds(vg, pad, rect.h / 2, data->label, NULL, bounds);
+	nvgBeginPath(vg);
+	nvgRect(vg, bounds[2] + 5, rect.h / 2, rect.w - bounds[2] - size - pad - 10, 1);
+	nvgFillColor(vg, nvgRGB(0xB0, 0xB0, 0xB0));
+	nvgFill(vg);
+
+	nvgFontFace(vg, "regular");
+	nvgFontSize(vg, APP_WIDGET_FONT_SIZE);
+	nvgFillColor(vg, APP_WIDGET_FONT_COLOR);
+	nvgTextAlign(vg, NVG_ALIGN_MIDDLE | NVG_ALIGN_LEFT);
+	nvgText(vg, pad, rect.h / 2, data->label, NULL);
+}
 
 static BoxShading hot_colors() {
 	BoxShading col;
@@ -328,6 +383,7 @@ void draw_widget(NVGcontext *vg, Data *head, int item, bool _first, bool _last) 
 		case WT_VBOX:   draw_vbox(vg, rect); break;
 		case WT_BUTTON: draw_button(vg, rect, (ButtonData *)head, item, _first, _last); break;
 		case WT_CHECKBOX: draw_checkbox(vg, rect, (CheckBoxData *)head, item); break;
+		case WT_CHECKBOX_FLOAT: draw_checkbox_float(vg, rect, (CheckBoxFloatData *)head, item); break;
 		case WT_SEPARATOR: draw_separator(vg, rect); break;
 	}
 

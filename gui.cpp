@@ -1,5 +1,6 @@
 #include "gui.hpp"
 #include "widgets.hpp"
+#include "exmview.hpp"
 #include <stddef.h>
 
 // creates a checkbox control for a pointer to a boolean
@@ -30,6 +31,31 @@ int checkbox(const char *label, bool *checked) {
 	// set to fire as soon as the left button is pressed and released
 	uiSetEvents(item, UI_BUTTON0_HOT_UP | UI_BUTTON0_DOWN);
 
+	return item;
+}
+
+
+int checkboxf(const char *label, float *state, float low, float high) {
+	int item = uiItem();
+	uiSetSize(item, 0, APP_WIDGET_HEIGHT);
+	CheckBoxFloatData *data = (CheckBoxFloatData*)uiAllocHandle(item, sizeof(CheckBoxFloatData));
+	data->head.type = WT_CHECKBOX_FLOAT;
+	data->head.handler = [](int item, UIevent event) {
+		CheckBoxFloatData *data = (CheckBoxFloatData*)uiGetHandle(item);
+		if (event == UI_BUTTON0_HOT_UP) {
+			if (*data->checked <= data->low) {
+				*data->checked = data->high;
+			}
+			else {
+				*data->checked = data->low;
+			}
+		}
+	};
+	data->label = label;
+	data->checked = state;
+	data->low = low;
+	data->high = high;
+	uiSetEvents(item, UI_BUTTON0_HOT_UP | UI_BUTTON0_DOWN);
 	return item;
 }
 
@@ -160,23 +186,28 @@ static void layout_window(int x, int y, int w, int h) {
 	uiSetMargins(col, pad, pad, pad, pad);
 	uiSetLayout(col, UI_TOP | UI_HFILL);
 
-	int box = column_append(col, hbox());
-	hgroup_append(box, button("Wireframe", [](int item, UIevent e) {}));
-	hgroup_append(box, button("Flat", NULL));
-	hgroup_append(box, button("Shaded", NULL));
+	//int box = column_append(col, hbox());
+	//hgroup_append(box, button("Wireframe", [](int item, UIevent e) {}));
+	//hgroup_append(box, button("Flat", NULL));
+	//hgroup_append(box, button("Shaded", NULL));
+	//column_append(col, separator());
 
+	// todo: radio buttons
+	//static bool grid = false;
+	//static bool bounds = false;
+	//static bool joints = false;
+	//column_append(col, checkbox("Show Grid", &grid));
+	column_append(col, checkbox("Show Wireframe", &g_state.wireframe));
 	column_append(col, separator());
+	column_append(col, checkbox("Show Backfaces", &g_state.show_backfaces));
+	column_append(col, checkboxf("Highlight Backfaces", &g_state.highlight_backfaces, 0.0f, 1.0f));
+	column_append(col, separator());
+	//column_append(col, checkbox("Show Bounds", &bounds));
+	column_append(col, checkboxf("Show Vertex Colors", &g_state.show_vcols, 0.0f, 1.0f));
+	column_append(col, checkboxf("Show Materials", &g_state.show_materials, 0.0f, 1.0f));
+	column_append(col, checkboxf("Show UVs", &g_state.show_uv, 0.0f, 1.0f));
 
-	static bool grid = false;
-	static bool wireframe = false;
-	static bool bounds = false;
-	static bool materials = false;
-	static bool joints = false;
-	column_append(col, checkbox("Show Grid", &grid));
-	column_append(col, checkbox("Show Wireframe", &wireframe));
-	column_append(col, checkbox("Show Bounds", &bounds));
-	column_append(col, checkbox("Show Materials", &materials));
-	column_append(col, checkbox("Show Joints", &joints));
+	//column_append(col, checkbox("Show Joints", &joints));
 
 	//column_append(col, button("button", [](int item, UIevent e) {}));
 
